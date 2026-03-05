@@ -1,0 +1,3 @@
+password database: JorgeMonge2026
+nombre: ddb242493
+server: bbdd.maximosl.com
