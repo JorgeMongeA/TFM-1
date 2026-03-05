@@ -1,0 +1,2 @@
+-- Base schema for TFM-1.
+-- Add tables and constraints for your MVP modules.
