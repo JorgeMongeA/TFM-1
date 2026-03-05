@@ -26,7 +26,7 @@ $hasError = isset($_GET['error']);
                             </div>
                         <?php endif; ?>
 
-                        <form method="POST" action="/login">
+                        <form method="POST" action="<?= htmlspecialchars(base_url('/login'), ENT_QUOTES, 'UTF-8') ?>">
                             <div class="mb-3">
                                 <label for="username" class="form-label">Username</label>
                                 <input type="text" class="form-control" id="username" name="username" required>

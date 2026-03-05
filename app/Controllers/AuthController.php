@@ -3,13 +3,14 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/Models/User.php';
+require_once dirname(__DIR__) . '/Core/helpers.php';
 
 class AuthController
 {
     public function showLogin(): void
     {
         if (isset($_SESSION['user'])) {
-            header('Location: /dashboard');
+            header('Location: ' . base_url('/dashboard'));
             exit;
         }
 
@@ -22,7 +23,7 @@ class AuthController
         $password = $_POST['password'] ?? '';
 
         if ($username === '' || $password === '') {
-            header('Location: /login?error=1');
+            header('Location: ' . base_url('/login') . '?error=1');
             exit;
         }
 
@@ -37,11 +38,11 @@ class AuthController
             ];
             $_SESSION['rol'] = $user['rol'];
 
-            header('Location: /dashboard');
+            header('Location: ' . base_url('/dashboard'));
             exit;
         }
 
-        header('Location: /login?error=1');
+        header('Location: ' . base_url('/login') . '?error=1');
         exit;
     }
 
@@ -63,7 +64,7 @@ class AuthController
         }
 
         session_destroy();
-        header('Location: /login');
+        header('Location: ' . base_url('/login'));
         exit;
     }
 }

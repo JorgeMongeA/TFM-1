@@ -17,7 +17,7 @@ $username = $_SESSION['user']['username'] ?? 'usuario';
         <div class="card shadow-sm">
             <div class="card-body p-4 d-flex justify-content-between align-items-center">
                 <h1 class="h4 m-0">Bienvenido, <?= htmlspecialchars($username, ENT_QUOTES, 'UTF-8') ?></h1>
-                <a href="/logout" class="btn btn-outline-danger">Logout</a>
+                <a href="<?= htmlspecialchars(base_url('/logout'), ENT_QUOTES, 'UTF-8') ?>" class="btn btn-outline-danger">Logout</a>
             </div>
         </div>
     </div>
