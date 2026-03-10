@@ -2,10 +2,6 @@
 
 declare(strict_types=1);
 
-if (session_status() !== PHP_SESSION_ACTIVE) {
-    session_start();
-}
-
 require_once __DIR__ . '/conexion.php';
 
 $configFile = dirname(__DIR__) . '/config/config.php';
@@ -16,8 +12,17 @@ if (!defined('BASE_URL')) {
     define('BASE_URL', $base !== '' ? $base : '/CON/public');
 }
 
+function iniciar_sesion(): void
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
+    }
+}
+
 function login(string $username, string $password): bool
 {
+    iniciar_sesion();
+
     $username = trim($username);
     if ($username === '' || $password === '') {
         return false;
@@ -33,8 +38,8 @@ function login(string $username, string $password): bool
     }
 
     session_regenerate_id(true);
-    $_SESSION['usuario_id'] = (int) $user['id'];
-    $_SESSION['usuario'] = (string) $user['username'];
+    $_SESSION['user_id'] = (int) $user['id'];
+    $_SESSION['username'] = (string) $user['username'];
     $_SESSION['rol_id'] = (int) ($user['rol_id'] ?? 0);
 
     return true;
@@ -42,7 +47,9 @@ function login(string $username, string $password): bool
 
 function require_login(): void
 {
-    if (empty($_SESSION['usuario'])) {
+    iniciar_sesion();
+
+    if (!isset($_SESSION['user_id'])) {
         header('Location: ' . BASE_URL . '/login.php');
         exit;
     }
@@ -50,6 +57,7 @@ function require_login(): void
 
 function logout(): void
 {
+    iniciar_sesion();
     $_SESSION = [];
 
     if (ini_get('session.use_cookies')) {

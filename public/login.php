@@ -2,24 +2,37 @@
 
 declare(strict_types=1);
 
+/** @var array<string, mixed> $config */
+$config = require dirname(__DIR__) . '/config/config.php';
+if (!defined('BASE_URL')) {
+    $base = rtrim((string) ($config['base_url'] ?? '/CON/public'), '/');
+    define('BASE_URL', $base !== '' ? $base : '/CON/public');
+}
+
+require_once dirname(__DIR__) . '/app/conexion.php';
 require_once dirname(__DIR__) . '/app/auth.php';
 
-if (!empty($_SESSION['usuario'])) {
+iniciar_sesion();
+
+if (isset($_SESSION['user_id'])) {
     header('Location: ' . BASE_URL . '/dashboard.php');
     exit;
 }
 
 $error = '';
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-    $username = (string) ($_POST['username'] ?? '');
-    $password = (string) ($_POST['password'] ?? '');
+    $username = trim((string) ($_POST['username'] ?? ''));
+    $password = trim((string) ($_POST['password'] ?? ''));
 
-    if (login($username, $password)) {
-        header('Location: ' . BASE_URL . '/dashboard.php');
-        exit;
+    try {
+        if (login($username, $password)) {
+            header('Location: ' . BASE_URL . '/dashboard.php');
+            exit;
+        }
+        $error = 'Usuario o contraseña incorrectos';
+    } catch (RuntimeException $e) {
+        $error = 'Error de conexión con la base de datos';
     }
-
-    $error = 'Usuario o contrasena incorrectos';
 }
 ?>
 <!DOCTYPE html>
@@ -27,14 +40,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login</title>
+    <title>Acceso a CONGREGACIONES</title>
     <link rel="stylesheet" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/css/estilos.css">
 </head>
-<body>
-    <main class="contenedor">
-        <section class="tarjeta">
-            <h1>Iniciar sesion</h1>
-            <p class="subtitulo">Acceso al sistema TFM</p>
+<body class="auth-body">
+    <main class="auth-main">
+        <section class="auth-card">
+            <h1>Acceso a CONGREGACIONES</h1>
+            <p class="subtitulo">Sistema de gestión de inventario y operaciones</p>
 
             <?php if ($error !== ''): ?>
                 <p class="error"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></p>
@@ -44,10 +57,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 <label for="username">Usuario</label>
                 <input id="username" name="username" type="text" required>
 
-                <label for="password">Contrasena</label>
+                <label for="password">Contraseña</label>
                 <input id="password" name="password" type="password" required>
 
-                <button type="submit">Entrar</button>
+                <button class="btn-primary" type="submit">Entrar</button>
             </form>
         </section>
     </main>
