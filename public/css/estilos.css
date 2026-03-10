@@ -4,9 +4,9 @@
 
 body {
     margin: 0;
-    font-family: Arial, sans-serif;
-    background: #f3f5f7;
-    color: #1f2933;
+    font-family: "Segoe UI", Tahoma, sans-serif;
+    background: #eef2f7;
+    color: #1a2533;
 }
 
 .contenedor {
@@ -19,17 +19,23 @@ body {
 
 .tarjeta {
     width: 100%;
-    max-width: 420px;
-    background: #ffffff;
-    border: 1px solid #d9e2ec;
-    border-radius: 10px;
-    padding: 24px;
-    box-shadow: 0 8px 24px rgba(16, 24, 40, 0.08);
+    max-width: 430px;
+    background: #fff;
+    border: 1px solid #d7dee8;
+    border-radius: 12px;
+    padding: 28px;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
 }
 
 h1 {
-    margin: 0 0 16px;
-    font-size: 24px;
+    margin: 0 0 6px;
+    font-size: 27px;
+}
+
+.subtitulo {
+    margin: 0 0 20px;
+    color: #4a5a70;
+    font-size: 15px;
 }
 
 label {
@@ -41,32 +47,39 @@ label {
 input {
     width: 100%;
     padding: 10px 12px;
-    border: 1px solid #cbd2d9;
+    border: 1px solid #c3ccd8;
     border-radius: 8px;
     font-size: 15px;
+    background: #fff;
 }
 
-button,
-.boton-secundario {
+input:focus {
+    outline: none;
+    border-color: #1d5fbf;
+    box-shadow: 0 0 0 3px rgba(29, 95, 191, 0.14);
+}
+
+.boton,
+button {
     display: inline-block;
     margin-top: 16px;
-    padding: 10px 14px;
+    padding: 10px 15px;
     border: none;
     border-radius: 8px;
-    background: #0f62fe;
+    background: #1d5fbf;
     color: #ffffff;
     text-decoration: none;
     font-weight: 600;
     cursor: pointer;
 }
 
-button:hover,
-.boton-secundario:hover {
-    background: #0043ce;
+.boton:hover,
+button:hover {
+    background: #174e9d;
 }
 
 .error {
-    margin: 0 0 10px;
-    color: #b42318;
+    margin: 0 0 14px;
+    color: #b4231b;
     font-size: 14px;
 }

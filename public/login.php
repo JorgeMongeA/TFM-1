@@ -2,16 +2,9 @@
 
 declare(strict_types=1);
 
-$config = require dirname(__DIR__) . '/config/config.php';
-if (!defined('BASE_URL')) {
-    $base = rtrim((string) ($config['base_url'] ?? '/CON'), '/');
-    define('BASE_URL', $base !== '' ? $base : '/CON');
-}
-
-require_once dirname(__DIR__) . '/app/conexion.php';
 require_once dirname(__DIR__) . '/app/auth.php';
 
-if (!empty($_SESSION['user'])) {
+if (!empty($_SESSION['usuario'])) {
     header('Location: ' . BASE_URL . '/dashboard.php');
     exit;
 }
@@ -26,7 +19,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         exit;
     }
 
-    $error = 'Usuario o contrasena incorrectos.';
+    $error = 'Usuario o contrasena incorrectos';
 }
 ?>
 <!DOCTYPE html>
@@ -40,7 +33,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 <body>
     <main class="contenedor">
         <section class="tarjeta">
-            <h1>Acceso</h1>
+            <h1>Iniciar sesion</h1>
+            <p class="subtitulo">Acceso al sistema TFM</p>
 
             <?php if ($error !== ''): ?>
                 <p class="error"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></p>

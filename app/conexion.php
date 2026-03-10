@@ -10,12 +10,12 @@ function conectar(): PDO
         return $pdo;
     }
 
-    $configPath = dirname(__DIR__) . '/config/config.php';
-    if (!file_exists($configPath)) {
-        throw new RuntimeException('No se encontro config/config.php');
+    $configFile = dirname(__DIR__) . '/config/config.php';
+    if (!is_file($configFile)) {
+        throw new RuntimeException('No existe config/config.php');
     }
 
-    $config = require $configPath;
+    $config = require $configFile;
 
     $host = (string) ($config['db_host'] ?? 'localhost');
     $dbname = (string) ($config['db_name'] ?? '');
@@ -31,7 +31,7 @@ function conectar(): PDO
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         ]);
     } catch (PDOException $e) {
-        throw new RuntimeException('Error de conexion a la base de datos: ' . $e->getMessage(), 0, $e);
+        throw new RuntimeException('Error al conectar con la base de datos: ' . $e->getMessage(), 0, $e);
     }
 
     return $pdo;

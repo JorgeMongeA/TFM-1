@@ -8,10 +8,12 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 
 require_once __DIR__ . '/conexion.php';
 
-$config = require dirname(__DIR__) . '/config/config.php';
+$configFile = dirname(__DIR__) . '/config/config.php';
+$config = is_file($configFile) ? require $configFile : [];
+
 if (!defined('BASE_URL')) {
-    $base = rtrim((string) ($config['base_url'] ?? '/CON'), '/');
-    define('BASE_URL', $base !== '' ? $base : '/CON');
+    $base = rtrim((string) ($config['base_url'] ?? '/CON/public'), '/');
+    define('BASE_URL', $base !== '' ? $base : '/CON/public');
 }
 
 function login(string $username, string $password): bool
@@ -31,16 +33,16 @@ function login(string $username, string $password): bool
     }
 
     session_regenerate_id(true);
-    $_SESSION['user'] = $user['username'];
-    $_SESSION['rol_id'] = (int) $user['rol_id'];
-    $_SESSION['user_id'] = (int) $user['id'];
+    $_SESSION['usuario_id'] = (int) $user['id'];
+    $_SESSION['usuario'] = (string) $user['username'];
+    $_SESSION['rol_id'] = (int) ($user['rol_id'] ?? 0);
 
     return true;
 }
 
 function require_login(): void
 {
-    if (empty($_SESSION['user'])) {
+    if (empty($_SESSION['usuario'])) {
         header('Location: ' . BASE_URL . '/login.php');
         exit;
     }
