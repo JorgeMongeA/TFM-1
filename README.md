@@ -16,13 +16,13 @@ El sistema permitirá mejorar la trazabilidad de materiales, optimizar la gesti�
 
 ## Tecnologías utilizadas
 
-* PHP 8+
-* MySQL / MariaDB
-* HTML5
-* CSS3
-* Bootstrap
-* Arquitectura MVC
-* Git y GitHub para control de versiones
+- PHP 8+
+- MySQL / MariaDB
+- HTML5
+- CSS3
+- Bootstrap
+- Arquitectura MVC
+- Git y GitHub para control de versiones
 
 ## Estructura del proyecto
 
@@ -65,13 +65,18 @@ http://localhost:8000
 
 ## Funcionalidades previstas (MVP)
 
-* Sistema de autenticación de usuarios
-* Gestión de roles (administrador, operaciones, cliente)
-* Registro y consulta de inventario
-* Gestión de entradas y movimientos de inventario
-* Trazabilidad de operaciones
+- Sistema de autenticación de usuarios
+- Gestión de roles (administrador, operaciones, cliente)
+- Registro y consulta de inventario
+- Gestión de entradas y movimientos de inventario
+- Trazabilidad de operaciones
 
 ## Despliegue
+
+- Acceso web: https://www.maximosl.com/CON/public/login.php
+- \*Credenciales temporales para test y pruebas.\*
+  user: almacen
+  pass: 1234
 
 El repositorio GitHub se utilizará como control de versiones y respaldo del proyecto.
 
