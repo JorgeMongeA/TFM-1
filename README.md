@@ -78,6 +78,8 @@ http://localhost:8000
   user: almacen
   pass: 1234
 
+- Acceso GITHUB: https://github.com/JorgeMongeA/TFM-1
+
 El repositorio GitHub se utilizará como control de versiones y respaldo del proyecto.
 
 La aplicación se desplegará en un servidor de hosting convencional mediante FTP, con base de datos MySQL alojada en el mismo servidor.
