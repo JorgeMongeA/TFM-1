@@ -115,7 +115,8 @@ label {
     font-weight: 600;
 }
 
-input {
+input,
+select {
     width: 100%;
     padding: 10px 12px;
     border: 1px solid #c8d3df;
@@ -124,10 +125,41 @@ input {
     background: #ffffff;
 }
 
-input:focus {
+input:focus,
+select:focus {
     outline: none;
     border-color: var(--primary);
     box-shadow: 0 0 0 3px rgba(31, 79, 138, 0.14);
+}
+
+.resultado-bloque {
+    margin: 16px 0 18px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-muted);
+}
+
+.resultado-titulo,
+.resultado-subtitulo {
+    margin: 0 0 10px;
+    font-weight: 700;
+    color: #304860;
+}
+
+.resultado-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+    gap: 8px 16px;
+}
+
+.resultado-grid p,
+.resultado-errores p {
+    margin: 0;
+}
+
+.resultado-errores {
+    margin-top: 12px;
 }
 
 .app-body {
@@ -310,6 +342,10 @@ input:focus {
     }
 
     .form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .resultado-grid {
         grid-template-columns: 1fr;
     }
 }
