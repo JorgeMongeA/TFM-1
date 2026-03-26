@@ -4,14 +4,6 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/conexion.php';
 
-$configFile = dirname(__DIR__) . '/config/config.php';
-$config = is_file($configFile) ? require $configFile : [];
-
-if (!defined('BASE_URL')) {
-    $base = rtrim((string) ($config['base_url'] ?? '/CON/public'), '/');
-    define('BASE_URL', $base !== '' ? $base : '/CON/public');
-}
-
 function iniciar_sesion(): void
 {
     if (session_status() !== PHP_SESSION_ACTIVE) {

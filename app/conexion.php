@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-function conectar(): PDO
+function cargarConfiguracion(): array
 {
-    static $pdo = null;
+    static $config = null;
 
-    if ($pdo instanceof PDO) {
-        return $pdo;
+    if (is_array($config)) {
+        return $config;
     }
 
     $configFile = dirname(__DIR__) . '/config/config.php';
@@ -16,6 +16,31 @@ function conectar(): PDO
     }
 
     $config = require $configFile;
+
+    return is_array($config) ? $config : [];
+}
+
+function obtenerBaseUrl(): string
+{
+    $config = cargarConfiguracion();
+    $base = rtrim((string) ($config['base_url'] ?? '/CON/public'), '/');
+
+    return $base !== '' ? $base : '/CON/public';
+}
+
+if (!defined('BASE_URL')) {
+    define('BASE_URL', obtenerBaseUrl());
+}
+
+function conectar(): PDO
+{
+    static $pdo = null;
+
+    if ($pdo instanceof PDO) {
+        return $pdo;
+    }
+
+    $config = cargarConfiguracion();
 
     foreach (['db_host', 'db_name', 'db_user', 'db_pass'] as $key) {
         if (!array_key_exists($key, $config) || trim((string) $config[$key]) === '') {

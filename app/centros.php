@@ -2,10 +2,151 @@
 
 declare(strict_types=1);
 
-function cargarCentros(PDO $pdo): array
+const CENTRO_DESCONOCIDO_CODIGO = '000000';
+const CENTRO_DESCONOCIDO_NOMBRE = 'DESCONOCIDO';
+
+function columnasCentrosTabla(bool $conAcciones = false): array
 {
-    $stmt = $pdo->query('SELECT codigo_centro, nombre_centro, ciudad, tipo, codigo_grupo, actualizado_en FROM centros ORDER BY codigo_centro ASC');
+    $columnas = [
+        'codigo_centro' => 'Código centro',
+        'nombre_centro' => 'Nombre centro',
+        'ciudad' => 'Ciudad',
+        'tipo' => 'Tipo',
+        'codigo_grupo' => 'Código grupo',
+        'actualizado_en' => 'Actualizado en',
+    ];
+
+    if ($conAcciones) {
+        $columnas['acciones'] = 'Acciones';
+    }
+
+    return $columnas;
+}
+
+function filtrosCentrosPermitidos(): array
+{
+    return ['codigo_centro', 'nombre_centro', 'ciudad', 'tipo', 'codigo_grupo'];
+}
+
+function leerFiltrosCentrosDesdeRequest(array $source): array
+{
+    $filtros = [];
+
+    foreach (filtrosCentrosPermitidos() as $campo) {
+        $filtros[$campo] = trim((string) ($source[$campo] ?? ''));
+    }
+
+    return $filtros;
+}
+
+function cargarCentros(PDO $pdo, array $filtros = []): array
+{
+    $sql = 'SELECT codigo_centro, nombre_centro, ciudad, tipo, codigo_grupo, actualizado_en FROM centros';
+    $where = [];
+    $params = [];
+
+    foreach ($filtros as $campo => $valor) {
+        if ($valor === '') {
+            continue;
+        }
+
+        $where[] = $campo . ' LIKE :' . $campo;
+        $params[':' . $campo] = '%' . $valor . '%';
+    }
+
+    if ($where !== []) {
+        $sql .= ' WHERE ' . implode(' AND ', $where);
+    }
+
+    $sql .= ' ORDER BY codigo_centro ASC';
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
     return $stmt->fetchAll();
+}
+
+function cargarCentrosParaSelector(PDO $pdo): array
+{
+    asegurarCentroDesconocido($pdo);
+
+    $stmt = $pdo->query('SELECT codigo_centro, nombre_centro, ciudad FROM centros ORDER BY nombre_centro ASC, codigo_centro ASC');
+    return $stmt->fetchAll();
+}
+
+function asegurarCentroDesconocido(PDO $pdo): void
+{
+    $stmt = $pdo->prepare('SELECT codigo_centro FROM centros WHERE codigo_centro = :codigo_centro LIMIT 1');
+    $stmt->execute([':codigo_centro' => CENTRO_DESCONOCIDO_CODIGO]);
+
+    if ($stmt->fetch() !== false) {
+        return;
+    }
+
+    $insert = $pdo->prepare(
+        'INSERT INTO centros (codigo_centro, nombre_centro, ciudad, tipo, codigo_grupo)
+         VALUES (:codigo_centro, :nombre_centro, :ciudad, :tipo, :codigo_grupo)'
+    );
+    $insert->execute([
+        ':codigo_centro' => CENTRO_DESCONOCIDO_CODIGO,
+        ':nombre_centro' => CENTRO_DESCONOCIDO_NOMBRE,
+        ':ciudad' => null,
+        ':tipo' => null,
+        ':codigo_grupo' => null,
+    ]);
+}
+
+function buscarCentroPorCodigo(PDO $pdo, string $codigoCentro): ?array
+{
+    $stmt = $pdo->prepare('SELECT codigo_centro, nombre_centro, ciudad, tipo, codigo_grupo FROM centros WHERE codigo_centro = :codigo_centro LIMIT 1');
+    $stmt->execute([':codigo_centro' => $codigoCentro]);
+    $centro = $stmt->fetch();
+
+    return $centro !== false ? $centro : null;
+}
+
+function guardarCentro(PDO $pdo, array $datos, ?string $codigoOriginal = null): void
+{
+    if ($codigoOriginal === null) {
+        $stmt = $pdo->prepare(
+            'INSERT INTO centros (codigo_centro, nombre_centro, ciudad, tipo, codigo_grupo)
+             VALUES (:codigo_centro, :nombre_centro, :ciudad, :tipo, :codigo_grupo)'
+        );
+        $stmt->execute([
+            ':codigo_centro' => $datos['codigo_centro'],
+            ':nombre_centro' => $datos['nombre_centro'] !== '' ? $datos['nombre_centro'] : null,
+            ':ciudad' => $datos['ciudad'] !== '' ? $datos['ciudad'] : null,
+            ':tipo' => $datos['tipo'] !== '' ? $datos['tipo'] : null,
+            ':codigo_grupo' => $datos['codigo_grupo'] !== '' ? $datos['codigo_grupo'] : null,
+        ]);
+
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        'UPDATE centros
+         SET codigo_centro = :codigo_centro,
+             nombre_centro = :nombre_centro,
+             ciudad = :ciudad,
+             tipo = :tipo,
+             codigo_grupo = :codigo_grupo,
+             actualizado_en = CURRENT_TIMESTAMP
+         WHERE codigo_centro = :codigo_original'
+    );
+    $stmt->execute([
+        ':codigo_centro' => $datos['codigo_centro'],
+        ':nombre_centro' => $datos['nombre_centro'] !== '' ? $datos['nombre_centro'] : null,
+        ':ciudad' => $datos['ciudad'] !== '' ? $datos['ciudad'] : null,
+        ':tipo' => $datos['tipo'] !== '' ? $datos['tipo'] : null,
+        ':codigo_grupo' => $datos['codigo_grupo'] !== '' ? $datos['codigo_grupo'] : null,
+        ':codigo_original' => $codigoOriginal,
+    ]);
+}
+
+function eliminarCentro(PDO $pdo, string $codigoCentro): void
+{
+    $stmt = $pdo->prepare('DELETE FROM centros WHERE codigo_centro = :codigo_centro');
+    $stmt->execute([':codigo_centro' => $codigoCentro]);
 }
 
 function sincronizarCentrosDesdeCsv(PDO $pdo, string $csvUrl): array
@@ -14,7 +155,7 @@ function sincronizarCentrosDesdeCsv(PDO $pdo, string $csvUrl): array
         throw new RuntimeException('URL CSV no definida.');
     }
 
-    $contenido = descargarCsvCentros($csvUrl);
+    $contenido = descargarCsvDesdeUrl($csvUrl);
     $lineas = explode("\n", $contenido);
 
     $resumen = [
@@ -65,6 +206,11 @@ function sincronizarCentrosDesdeCsv(PDO $pdo, string $csvUrl): array
 }
 
 function descargarCsvCentros(string $csvUrl): string
+{
+    return descargarCsvDesdeUrl($csvUrl);
+}
+
+function descargarCsvDesdeUrl(string $csvUrl): string
 {
     $contenido = @file_get_contents($csvUrl);
     if ($contenido !== false) {
@@ -151,4 +297,11 @@ function limpiarCampoCsv(mixed $valor): string
     }
 
     return trim((string) $valor);
+}
+
+function limpiarCampoCsvONull(mixed $valor): ?string
+{
+    $texto = limpiarCampoCsv($valor);
+
+    return $texto !== '' ? $texto : null;
 }

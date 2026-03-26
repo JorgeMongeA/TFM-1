@@ -2,13 +2,6 @@
 
 declare(strict_types=1);
 
-/** @var array<string, mixed> $config */
-$config = require dirname(__DIR__) . '/config/config.php';
-if (!defined('BASE_URL')) {
-    $base = rtrim((string) ($config['base_url'] ?? '/CON/public'), '/');
-    define('BASE_URL', $base !== '' ? $base : '/CON/public');
-}
-
 require_once dirname(__DIR__) . '/app/conexion.php';
 require_once dirname(__DIR__) . '/app/auth.php';
 

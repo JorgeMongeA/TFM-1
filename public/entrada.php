@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/app/conexion.php';
 require_once dirname(__DIR__) . '/app/auth.php';
+require_once dirname(__DIR__) . '/app/layout.php';
+require_once dirname(__DIR__) . '/app/centros.php';
+
 require_login();
 
 const DESTINOS_PERMITIDOS = ['EDV', 'EPL'];
@@ -20,41 +23,68 @@ function obtenerSiguienteIdInventario(PDO $pdo): string
     return (string) max(1, (int) $siguiente);
 }
 
-$username = (string) ($_SESSION['username'] ?? '');
+function construirEtiquetaCentro(array $centro): string
+{
+    $nombre = trim((string) ($centro['nombre_centro'] ?? ''));
+    $codigo = trim((string) ($centro['codigo_centro'] ?? ''));
+
+    if ($nombre === '') {
+        return $codigo;
+    }
+
+    return $nombre . ' (' . $codigo . ')';
+}
+
 $pdo = null;
 $siguienteId = '';
+$centros = [];
+$error = '';
 
 try {
     $pdo = conectar();
+    asegurarCentroDesconocido($pdo);
     $siguienteId = obtenerSiguienteIdInventario($pdo);
+    $centros = cargarCentrosParaSelector($pdo);
 } catch (Throwable $e) {
     $siguienteId = '';
+    $error = 'No se pudieron cargar los centros o el siguiente ID disponible.';
+}
+
+$centrosPorCodigo = [];
+$centrosPorEtiqueta = [];
+
+foreach ($centros as $centro) {
+    $codigoCentro = trim((string) ($centro['codigo_centro'] ?? ''));
+    if ($codigoCentro === '') {
+        continue;
+    }
+
+    $centrosPorCodigo[$codigoCentro] = $centro;
+    $centrosPorEtiqueta[construirEtiquetaCentro($centro)] = $centro;
 }
 
 $datos = [
     'id' => $siguienteId,
+    'centro_selector' => '',
     'editorial' => '',
     'colegio' => '',
     'codigo_centro' => '',
     'ubicacion' => '',
     'fecha_entrada' => '',
     'bultos' => '',
-    'fecha_salida' => '',
     'destino' => '',
     'orden' => '',
-    'indicador_completa' => '',
 ];
 
 $required = ['editorial', 'colegio', 'codigo_centro', 'ubicacion', 'fecha_entrada', 'bultos'];
 $labels = [
     'editorial' => 'Editorial',
-    'colegio' => 'Colegio',
+    'colegio' => 'Centro',
     'codigo_centro' => 'Código centro',
     'ubicacion' => 'Ubicación',
     'fecha_entrada' => 'Fecha entrada',
     'bultos' => 'Bultos',
 ];
-$error = '';
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     foreach ($datos as $key => $value) {
@@ -64,6 +94,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     try {
         if (!$pdo instanceof PDO) {
             $pdo = conectar();
+            asegurarCentroDesconocido($pdo);
         }
 
         if ($datos['id'] === '') {
@@ -71,6 +102,33 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         }
     } catch (Throwable $e) {
         $error = 'No se pudo calcular el siguiente ID disponible.';
+    }
+
+    if ($error === '') {
+        $centroSeleccionado = null;
+
+        if ($datos['codigo_centro'] !== '' && isset($centrosPorCodigo[$datos['codigo_centro']])) {
+            $centroSeleccionado = $centrosPorCodigo[$datos['codigo_centro']];
+        } elseif ($datos['centro_selector'] !== '' && isset($centrosPorEtiqueta[$datos['centro_selector']])) {
+            $centroSeleccionado = $centrosPorEtiqueta[$datos['centro_selector']];
+        } elseif (
+            strtoupper($datos['centro_selector']) === CENTRO_DESCONOCIDO_NOMBRE
+            || strtoupper($datos['colegio']) === CENTRO_DESCONOCIDO_NOMBRE
+            || $datos['codigo_centro'] === CENTRO_DESCONOCIDO_CODIGO
+        ) {
+            $centroSeleccionado = [
+                'codigo_centro' => CENTRO_DESCONOCIDO_CODIGO,
+                'nombre_centro' => CENTRO_DESCONOCIDO_NOMBRE,
+            ];
+        }
+
+        if ($centroSeleccionado === null) {
+            $error = 'Selecciona un centro válido de la lista.';
+        } else {
+            $datos['colegio'] = (string) ($centroSeleccionado['nombre_centro'] ?? '');
+            $datos['codigo_centro'] = (string) ($centroSeleccionado['codigo_centro'] ?? '');
+            $datos['centro_selector'] = construirEtiquetaCentro($centroSeleccionado);
+        }
     }
 
     $faltantes = [];
@@ -103,11 +161,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
     if ($error === '') {
         $sql = 'INSERT INTO inventario (
-                    id, editorial, colegio, codigo_centro, ubicacion, fecha_entrada, bultos,
-                    fecha_salida, destino, `orden`, indicador_completa
+                    id, editorial, colegio, codigo_centro, ubicacion, fecha_entrada, bultos, destino, `orden`
                 ) VALUES (
-                    :id, :editorial, :colegio, :codigo_centro, :ubicacion, :fecha_entrada, :bultos,
-                    :fecha_salida, :destino, :orden, :indicador_completa
+                    :id, :editorial, :colegio, :codigo_centro, :ubicacion, :fecha_entrada, :bultos, :destino, :orden
                 )';
 
         try {
@@ -119,7 +175,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $stmtExiste->execute([':id' => (int) $datos['id']]);
 
             if ($stmtExiste->fetch() !== false) {
-                $error = 'El ID ya existe en el inventario. Introduzca otro valor.';
+                $error = 'El ID ya existe en el inventario. Introduce otro valor.';
             } else {
                 $stmt = $pdo->prepare($sql);
                 $stmt->execute([
@@ -130,13 +186,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     ':ubicacion' => $datos['ubicacion'],
                     ':fecha_entrada' => $datos['fecha_entrada'],
                     ':bultos' => (int) $datos['bultos'],
-                    ':fecha_salida' => $datos['fecha_salida'] !== '' ? $datos['fecha_salida'] : null,
                     ':destino' => $datos['destino'] !== '' ? $datos['destino'] : null,
                     ':orden' => $datos['orden'] !== '' ? $datos['orden'] : null,
-                    ':indicador_completa' => $datos['indicador_completa'] !== '' ? $datos['indicador_completa'] : null,
                 ]);
 
-                header('Location: ' . BASE_URL . '/inventario.php');
+                header('Location: ' . BASE_URL . '/entrada.php?guardado=1&id=' . rawurlencode((string) $datos['id']));
                 exit;
             }
         } catch (Throwable $e) {
@@ -144,98 +198,137 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         }
     }
 }
+
+$guardado = (string) ($_GET['guardado'] ?? '') === '1';
+$idGuardado = trim((string) ($_GET['id'] ?? ''));
+
+if ($guardado) {
+    foreach ($datos as $key => $value) {
+        $datos[$key] = $key === 'id' ? $siguienteId : '';
+    }
+}
+
+$centrosJson = [];
+foreach ($centros as $centro) {
+    $centrosJson[] = [
+        'label' => construirEtiquetaCentro($centro),
+        'codigo' => (string) ($centro['codigo_centro'] ?? ''),
+        'nombre' => (string) ($centro['nombre_centro'] ?? ''),
+    ];
+}
+
+renderAppLayoutStart(
+    'Inventario - Entrada',
+    'entrada',
+    'Inventario - Entrada',
+    'Registro de nuevas entradas en almacén'
+);
 ?>
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nueva entrada</title>
-    <link rel="stylesheet" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/css/estilos.css">
-</head>
-<body class="app-body">
-    <header class="topbar">
-        <div class="topbar-inner">
-            <p class="brand">CONGREGACIONES</p>
-            <nav class="main-nav">
-                <a class="nav-link" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/dashboard.php">Dashboard</a>
-                <a class="nav-link" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/inventario.php">Inventario</a>
-                <a class="nav-link activo" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/entrada.php">Nueva entrada</a>
-                <a class="nav-link" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/centros.php">Centros</a>
-                <a class="nav-link salir" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/logout.php">Cerrar sesión</a>
-            </nav>
-            <p class="topbar-user">Usuario: <strong><?= htmlspecialchars($username, ENT_QUOTES, 'UTF-8') ?></strong></p>
+<section class="panel panel-card">
+    <?php if ($error !== ''): ?>
+        <div class="alert alert-danger"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div>
+    <?php endif; ?>
+
+    <?php if ($guardado): ?>
+        <div class="alert alert-success d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3">
+            <div>
+                <strong>Entrada guardada correctamente.</strong>
+                <?php if ($idGuardado !== ''): ?>
+                    <div>ID registrado: <?= htmlspecialchars($idGuardado, ENT_QUOTES, 'UTF-8') ?></div>
+                <?php endif; ?>
+            </div>
+            <a class="btn btn-outline-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/etiqueta.php?id=<?= rawurlencode($idGuardado) ?>">Generar etiqueta PDF</a>
         </div>
-    </header>
+    <?php endif; ?>
 
-    <main class="app-main">
-        <section class="panel">
-            <h1>Entrada de inventario</h1>
-            <p class="subtitulo">Registro de nueva entrada en almacén</p>
+    <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/entrada.php" class="row g-3" autocomplete="off">
+        <div class="col-12 col-md-6 col-xl-3">
+            <label class="form-label" for="id">ID</label>
+            <input class="form-control" id="id" name="id" type="number" min="1" value="<?= htmlspecialchars($datos['id'], ENT_QUOTES, 'UTF-8') ?>">
+        </div>
+        <div class="col-12 col-md-6 col-xl-3">
+            <label class="form-label" for="editorial">Editorial *</label>
+            <input class="form-control" id="editorial" name="editorial" type="text" required value="<?= htmlspecialchars($datos['editorial'], ENT_QUOTES, 'UTF-8') ?>">
+        </div>
+        <div class="col-12 col-xl-6">
+            <label class="form-label" for="centro_selector">Centro *</label>
+            <input class="form-control" id="centro_selector" name="centro_selector" type="text" list="centros_disponibles" required value="<?= htmlspecialchars($datos['centro_selector'], ENT_QUOTES, 'UTF-8') ?>" placeholder="Escribe para buscar un centro">
+            <datalist id="centros_disponibles">
+                <?php foreach ($centros as $centro): ?>
+                    <option value="<?= htmlspecialchars(construirEtiquetaCentro($centro), ENT_QUOTES, 'UTF-8') ?>"></option>
+                <?php endforeach; ?>
+            </datalist>
+            <div class="form-text">Puedes buscar por nombre. Incluye la opción DESCONOCIDO (000000).</div>
+        </div>
+        <div class="col-12 col-md-6">
+            <label class="form-label" for="colegio">Centro seleccionado *</label>
+            <input class="form-control bg-light" id="colegio" name="colegio" type="text" required readonly value="<?= htmlspecialchars($datos['colegio'], ENT_QUOTES, 'UTF-8') ?>">
+        </div>
+        <div class="col-12 col-md-6">
+            <label class="form-label" for="codigo_centro">Código centro *</label>
+            <input class="form-control bg-light" id="codigo_centro" name="codigo_centro" type="text" required readonly value="<?= htmlspecialchars($datos['codigo_centro'], ENT_QUOTES, 'UTF-8') ?>">
+        </div>
+        <div class="col-12 col-md-6 col-xl-3">
+            <label class="form-label" for="ubicacion">Ubicación *</label>
+            <input class="form-control" id="ubicacion" name="ubicacion" type="text" required value="<?= htmlspecialchars($datos['ubicacion'], ENT_QUOTES, 'UTF-8') ?>">
+        </div>
+        <div class="col-12 col-md-6 col-xl-3">
+            <label class="form-label" for="fecha_entrada">Fecha entrada *</label>
+            <input class="form-control" id="fecha_entrada" name="fecha_entrada" type="date" required value="<?= htmlspecialchars($datos['fecha_entrada'], ENT_QUOTES, 'UTF-8') ?>">
+        </div>
+        <div class="col-12 col-md-6 col-xl-3">
+            <label class="form-label" for="bultos">Bultos *</label>
+            <input class="form-control" id="bultos" name="bultos" type="number" min="0" required value="<?= htmlspecialchars($datos['bultos'], ENT_QUOTES, 'UTF-8') ?>">
+        </div>
+        <div class="col-12 col-md-6 col-xl-3">
+            <label class="form-label" for="destino">Destino</label>
+            <select class="form-select" id="destino" name="destino">
+                <option value=""<?= $datos['destino'] === '' ? ' selected' : '' ?>>Selecciona destino</option>
+                <?php foreach (DESTINOS_PERMITIDOS as $destino): ?>
+                    <option value="<?= htmlspecialchars($destino, ENT_QUOTES, 'UTF-8') ?>"<?= $datos['destino'] === $destino ? ' selected' : '' ?>>
+                        <?= htmlspecialchars($destino, ENT_QUOTES, 'UTF-8') ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="col-12 col-md-6 col-xl-3">
+            <label class="form-label" for="orden">Número de orden</label>
+            <input class="form-control" id="orden" name="orden" type="text" value="<?= htmlspecialchars($datos['orden'], ENT_QUOTES, 'UTF-8') ?>">
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+            <button class="btn btn-primary mt-0" type="submit">Guardar entrada</button>
+            <a class="btn btn-outline-secondary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/inventario_consulta.php">Volver a inventario</a>
+        </div>
+    </form>
+</section>
 
-            <?php if ($error !== ''): ?>
-                <p class="error"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></p>
-            <?php endif; ?>
+<script>
+const centrosEntrada = <?= json_encode($centrosJson, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const centroSelectorInput = document.getElementById('centro_selector');
+const centroNombreInput = document.getElementById('colegio');
+const centroCodigoInput = document.getElementById('codigo_centro');
 
-            <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/entrada.php" class="form-grid">
-                <div class="campo">
-                    <label for="id">ID</label>
-                    <input id="id" name="id" type="number" min="1" value="<?= htmlspecialchars($datos['id'], ENT_QUOTES, 'UTF-8') ?>">
-                </div>
-                <div class="campo">
-                    <label for="editorial">Editorial *</label>
-                    <input id="editorial" name="editorial" type="text" required value="<?= htmlspecialchars($datos['editorial'], ENT_QUOTES, 'UTF-8') ?>">
-                </div>
-                <div class="campo">
-                    <label for="colegio">Colegio *</label>
-                    <input id="colegio" name="colegio" type="text" required value="<?= htmlspecialchars($datos['colegio'], ENT_QUOTES, 'UTF-8') ?>">
-                </div>
-                <div class="campo">
-                    <label for="codigo_centro">Código centro *</label>
-                    <input id="codigo_centro" name="codigo_centro" type="text" required value="<?= htmlspecialchars($datos['codigo_centro'], ENT_QUOTES, 'UTF-8') ?>">
-                </div>
-                <div class="campo">
-                    <label for="ubicacion">Ubicación *</label>
-                    <input id="ubicacion" name="ubicacion" type="text" required value="<?= htmlspecialchars($datos['ubicacion'], ENT_QUOTES, 'UTF-8') ?>">
-                </div>
-                <div class="campo">
-                    <label for="fecha_entrada">Fecha entrada *</label>
-                    <input id="fecha_entrada" name="fecha_entrada" type="date" required value="<?= htmlspecialchars($datos['fecha_entrada'], ENT_QUOTES, 'UTF-8') ?>">
-                </div>
-                <div class="campo">
-                    <label for="bultos">Bultos *</label>
-                    <input id="bultos" name="bultos" type="number" min="0" required value="<?= htmlspecialchars($datos['bultos'], ENT_QUOTES, 'UTF-8') ?>">
-                </div>
-                <div class="campo">
-                    <label for="fecha_salida">Fecha salida</label>
-                    <input id="fecha_salida" name="fecha_salida" type="date" value="<?= htmlspecialchars($datos['fecha_salida'], ENT_QUOTES, 'UTF-8') ?>">
-                </div>
-                <div class="campo">
-                    <label for="destino">Destino</label>
-                    <select id="destino" name="destino">
-                        <option value=""<?= $datos['destino'] === '' ? ' selected' : '' ?>>Selecciona destino</option>
-                        <?php foreach (DESTINOS_PERMITIDOS as $destino): ?>
-                            <option value="<?= htmlspecialchars($destino, ENT_QUOTES, 'UTF-8') ?>"<?= $datos['destino'] === $destino ? ' selected' : '' ?>>
-                                <?= htmlspecialchars($destino, ENT_QUOTES, 'UTF-8') ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="campo">
-                    <label for="orden">Orden</label>
-                    <input id="orden" name="orden" type="text" value="<?= htmlspecialchars($datos['orden'], ENT_QUOTES, 'UTF-8') ?>">
-                </div>
-                <div class="campo">
-                    <label for="indicador_completa">Indicador completa</label>
-                    <input id="indicador_completa" name="indicador_completa" type="text" value="<?= htmlspecialchars($datos['indicador_completa'], ENT_QUOTES, 'UTF-8') ?>">
-                </div>
+function aplicarCentroSeleccionado(valor) {
+    const centro = centrosEntrada.find((item) => item.label === valor);
 
-                <div class="acciones-form">
-                    <button class="btn-primary" type="submit">Guardar entrada</button>
-                    <a class="btn-secundario" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/inventario.php">Volver a inventario</a>
-                </div>
-            </form>
-        </section>
-    </main>
-</body>
-</html>
+    if (!centro) {
+        centroNombreInput.value = '';
+        centroCodigoInput.value = '';
+        return;
+    }
+
+    centroNombreInput.value = centro.nombre;
+    centroCodigoInput.value = centro.codigo;
+}
+
+if (centroSelectorInput) {
+    aplicarCentroSeleccionado(centroSelectorInput.value);
+    centroSelectorInput.addEventListener('input', (event) => {
+        aplicarCentroSeleccionado(event.target.value);
+    });
+    centroSelectorInput.addEventListener('change', (event) => {
+        aplicarCentroSeleccionado(event.target.value);
+    });
+}
+</script>
+<?php renderAppLayoutEnd(); ?>
