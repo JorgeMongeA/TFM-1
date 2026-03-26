@@ -33,7 +33,7 @@ $username = (string) ($_SESSION['username'] ?? '');
     <main class="app-main">
         <section class="panel">
             <h1>Dashboard</h1>
-            <p class="subtitulo">Panel principal de control y seguimiento</p>
+            <p class="subtitulo">Panel principal de control y seguimiento :</p>
             <p class="texto">Bienvenido, <strong><?= htmlspecialchars($username, ENT_QUOTES, 'UTF-8') ?></strong></p>
         </section>
     </main>
