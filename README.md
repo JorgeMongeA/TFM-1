@@ -76,7 +76,7 @@ http://localhost:8000
 - Acceso web: https://www.maximosl.com/CON/public/login.php
 - \*Credenciales temporales para test y pruebas.\*
   user: almacen
-  pass: 1234
+  pass: aaa123
 
 - Acceso GITHUB: https://github.com/JorgeMongeA/TFM-1
 
