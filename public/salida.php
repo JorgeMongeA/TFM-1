@@ -6,6 +6,7 @@ require_once dirname(__DIR__) . '/app/conexion.php';
 require_once dirname(__DIR__) . '/app/auth.php';
 require_once dirname(__DIR__) . '/app/centros.php';
 require_once dirname(__DIR__) . '/app/inventario.php';
+require_once dirname(__DIR__) . '/app/albaranes.php';
 require_once dirname(__DIR__) . '/app/layout.php';
 
 require_login();
@@ -30,13 +31,7 @@ $mercanciaSeleccionada = [];
 $error = '';
 $centroCodigo = trim((string) ($_GET['codigo_centro'] ?? ''));
 $centroSelector = trim((string) ($_GET['centro_selector'] ?? ''));
-$seleccionadosIds = $_GET['seleccionados'] ?? [];
-
-if (!is_array($seleccionadosIds)) {
-    $seleccionadosIds = [$seleccionadosIds];
-}
-
-$seleccionadosIds = array_values(array_filter(array_map(static fn(mixed $valor): int => (int) $valor, $seleccionadosIds), static fn(int $valor): bool => $valor > 0));
+$seleccionadosIds = leerIdsSeleccionadosDesdeRequest($_GET);
 
 try {
     $pdo = conectar();
@@ -182,7 +177,13 @@ renderAppLayoutStart(
                     <p class="eyebrow mb-1">Mercancía seleccionada para salida</p>
                     <p class="mb-0 text-body-secondary">Revisa los artículos añadidos antes de generar el albarán.</p>
                 </div>
-                <a class="btn btn-outline-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/albaran_pdf.php?tipo=salida">Generar albarán PDF</a>
+                <form method="GET" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/albaran_pdf.php" target="_blank" class="d-inline-flex">
+                    <input type="hidden" name="tipo" value="salida">
+                    <?php foreach ($seleccionadosIds as $idSeleccionado): ?>
+                        <input type="hidden" name="seleccionados[]" value="<?= htmlspecialchars((string) $idSeleccionado, ENT_QUOTES, 'UTF-8') ?>">
+                    <?php endforeach; ?>
+                    <button class="btn btn-outline-primary" type="submit"<?= $mercanciaSeleccionada === [] ? ' disabled' : '' ?>>Generar albarán PDF</button>
+                </form>
             </div>
 
             <?php if ($mercanciaSeleccionada === []): ?>
