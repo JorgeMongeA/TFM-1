@@ -17,6 +17,8 @@ $registros = [];
 $errorCarga = '';
 $resultadoSincronizacion = null;
 $resultadoBidireccional = null;
+$flashSyncHistorico = $_SESSION['flash_sync_historico'] ?? null;
+unset($_SESSION['flash_sync_historico']);
 $columnasTabla = columnasInventarioTabla();
 
 try {
@@ -27,16 +29,8 @@ try {
         $accionSincronizacion = trim((string) ($_POST['sync_action'] ?? 'csv'));
 
         if ($accionSincronizacion === 'bidireccional') {
-            $scriptUrl = trim((string) ($config['google_inventory_sync_url'] ?? ''));
-            $token = trim((string) ($config['google_inventory_sync_token'] ?? ''));
-
-            if ($scriptUrl === '' || $scriptUrl === 'PONER_AQUI_URL_WEB_APP_DE_APPS_SCRIPT') {
-                throw new RuntimeException('Falta configurar google_inventory_sync_url en config/config.php.');
-            }
-
-            if ($token === '' || $token === 'PONER_AQUI_TOKEN_SECRETO_SIMPLE') {
-                throw new RuntimeException('Falta configurar google_inventory_sync_token en config/config.php.');
-            }
+            $scriptUrl = obtenerUrlWebAppGoogleSheets($config);
+            $token = obtenerTokenSyncGoogleSheets();
 
             $resultadoBidireccional = sincronizarInventarioBidireccional($pdo, $scriptUrl, $token);
         } else {
@@ -51,6 +45,7 @@ try {
 
     $registros = consultarInventario($pdo, $filtros, $ordenar, $direccion);
 } catch (Throwable $e) {
+    error_log('[GOOGLE_SYNC] inventario_consulta.php | ' . $e->getMessage());
     $mensajeError = trim($e->getMessage());
     $errorCarga = $mensajeError !== '' ? $mensajeError : 'No se pudo cargar el inventario.';
 }
@@ -102,6 +97,9 @@ renderAppLayoutStart(
                         <input type="hidden" name="sync_action" value="bidireccional">
                         <button class="btn btn-outline-primary w-100" type="submit">Sincronizar bidireccional</button>
                     </form>
+                    <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/sync_historico.php">
+                        <button class="btn btn-outline-success w-100" type="submit">Sincronizar historico con Google Sheets</button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -109,6 +107,26 @@ renderAppLayoutStart(
 
     <?php if ($errorCarga !== ''): ?>
         <div class="alert alert-danger"><?= htmlspecialchars($errorCarga, ENT_QUOTES, 'UTF-8') ?></div>
+    <?php endif; ?>
+
+    <?php if (is_array($flashSyncHistorico)): ?>
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body">
+                <p class="eyebrow">Sincronizacion de historico</p>
+                <?php if (($flashSyncHistorico['ok'] ?? false) === true): ?>
+                    <?php $resultadoHistorico = is_array($flashSyncHistorico['resultado'] ?? null) ? $flashSyncHistorico['resultado'] : []; ?>
+                    <div class="alert alert-success mb-3">Historico sincronizado correctamente con Google Sheets.</div>
+                    <div class="row g-3">
+                        <div class="col-6 col-xl-3"><strong>Insertados en historico:</strong> <?= htmlspecialchars((string) ($resultadoHistorico['insertados_historico'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
+                        <div class="col-6 col-xl-3"><strong>Ya existentes:</strong> <?= htmlspecialchars((string) ($resultadoHistorico['ya_existian_historico'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
+                        <div class="col-6 col-xl-3"><strong>Retirados de inventario:</strong> <?= htmlspecialchars((string) ($resultadoHistorico['retirados_inventario'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
+                        <div class="col-6 col-xl-3"><strong>Marcados en SQL:</strong> <?= htmlspecialchars((string) ($resultadoHistorico['sincronizados_sql'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
+                    </div>
+                <?php else: ?>
+                    <div class="alert alert-danger mb-0"><?= htmlspecialchars((string) ($flashSyncHistorico['mensaje'] ?? 'No se pudo sincronizar el historico con Google Sheets.'), ENT_QUOTES, 'UTF-8') ?></div>
+                <?php endif; ?>
+            </div>
+        </div>
     <?php endif; ?>
 
     <?php if ($resultadoSincronizacion !== null): ?>

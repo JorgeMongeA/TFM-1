@@ -29,6 +29,7 @@ $centrosPorEtiqueta = [];
 $mercancia = [];
 $mercanciaSeleccionada = [];
 $error = '';
+$avisoSeleccion = '';
 $centroCodigo = trim((string) ($_GET['codigo_centro'] ?? ''));
 $centroSelector = trim((string) ($_GET['centro_selector'] ?? ''));
 $seleccionadosIds = leerIdsSeleccionadosDesdeRequest($_GET);
@@ -54,11 +55,18 @@ try {
 
     if ($centroCodigo !== '' && isset($centrosPorCodigo[$centroCodigo])) {
         $centroSelector = construirEtiquetaCentroSalida($centrosPorCodigo[$centroCodigo]);
-        $mercancia = consultarInventarioPorCentros($pdo, [$centroCodigo]);
+        $mercancia = consultarInventarioPorCentros($pdo, [$centroCodigo], INVENTARIO_ESTADO_ACTIVO);
     }
 
     if ($seleccionadosIds !== []) {
-        $mercanciaSeleccionada = consultarInventarioPorIds($pdo, $seleccionadosIds);
+        $mercanciaSeleccionada = consultarInventarioPorIds($pdo, $seleccionadosIds, INVENTARIO_ESTADO_ACTIVO);
+        $seleccionadosActivos = array_map(static fn(array $fila): int => (int) ($fila['id'] ?? 0), $mercanciaSeleccionada);
+
+        if (count($seleccionadosActivos) !== count($seleccionadosIds)) {
+            $avisoSeleccion = 'Algunas lineas ya no estaban activas y se han retirado de la seleccion.';
+        }
+
+        $seleccionadosIds = $seleccionadosActivos;
     }
 } catch (Throwable $e) {
     $mensajeError = trim($e->getMessage());
@@ -80,12 +88,16 @@ renderAppLayoutStart(
     'Inventario - Salida',
     'salida',
     'Inventario - Salida',
-    'Selección visual de mercancía para preparar la salida'
+    'Seleccion visual de mercancia para preparar la salida'
 );
 ?>
 <section class="panel panel-card">
     <?php if ($error !== ''): ?>
         <div class="alert alert-danger"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div>
+    <?php endif; ?>
+
+    <?php if ($avisoSeleccion !== ''): ?>
+        <div class="alert alert-warning"><?= htmlspecialchars($avisoSeleccion, ENT_QUOTES, 'UTF-8') ?></div>
     <?php endif; ?>
 
     <div class="card border-0 shadow-sm mb-4">
@@ -105,7 +117,7 @@ renderAppLayoutStart(
                     <?php foreach ($seleccionadosIds as $idSeleccionado): ?>
                         <input type="hidden" name="seleccionados[]" value="<?= htmlspecialchars((string) $idSeleccionado, ENT_QUOTES, 'UTF-8') ?>">
                     <?php endforeach; ?>
-                    <button class="btn btn-primary mt-0" type="submit">Buscar mercancía</button>
+                    <button class="btn btn-primary mt-0" type="submit">Buscar mercancia</button>
                     <a class="btn btn-outline-secondary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/salida.php">Limpiar</a>
                 </div>
             </form>
@@ -116,17 +128,17 @@ renderAppLayoutStart(
         <div class="card-body">
             <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-3">
                 <div>
-                    <p class="eyebrow mb-1">Mercancía disponible</p>
+                    <p class="eyebrow mb-1">Mercancia disponible</p>
                     <p class="mb-0 text-body-secondary">
-                        <?= $centroCodigo !== '' ? 'Centro seleccionado: ' . htmlspecialchars($centroSelector, ENT_QUOTES, 'UTF-8') : 'Selecciona un centro para ver la mercancía asociada.' ?>
+                        <?= $centroCodigo !== '' ? 'Centro seleccionado: ' . htmlspecialchars($centroSelector, ENT_QUOTES, 'UTF-8') : 'Selecciona un centro para ver la mercancia asociada.' ?>
                     </p>
                 </div>
             </div>
 
             <?php if ($centroCodigo === ''): ?>
-                <div class="alert alert-light border mb-0">Busca un centro para cargar la mercancía disponible.</div>
+                <div class="alert alert-light border mb-0">Busca un centro para cargar la mercancia disponible.</div>
             <?php elseif ($mercancia === []): ?>
-                <div class="alert alert-warning mb-0">No hay mercancía asociada al centro seleccionado.</div>
+                <div class="alert alert-warning mb-0">No hay mercancia activa asociada al centro seleccionado.</div>
             <?php else: ?>
                 <div class="table-responsive custom-table-wrap">
                     <table class="table table-hover align-middle mb-0 data-table">
@@ -135,7 +147,7 @@ renderAppLayoutStart(
                                 <?php foreach ($columnasTabla as $titulo): ?>
                                     <th scope="col"><?= htmlspecialchars($titulo, ENT_QUOTES, 'UTF-8') ?></th>
                                 <?php endforeach; ?>
-                                <th scope="col">Acción</th>
+                                <th scope="col">Accion</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -148,7 +160,7 @@ renderAppLayoutStart(
                                     <?php endforeach; ?>
                                     <td>
                                         <?php if (in_array($filaId, $seleccionadosIds, true)): ?>
-                                            <span class="badge text-bg-success">Añadida</span>
+                                            <span class="badge text-bg-success">Anadida</span>
                                         <?php else: ?>
                                             <form method="GET" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/salida.php">
                                                 <input type="hidden" name="centro_selector" value="<?= htmlspecialchars($centroSelector, ENT_QUOTES, 'UTF-8') ?>">
@@ -157,7 +169,7 @@ renderAppLayoutStart(
                                                     <input type="hidden" name="seleccionados[]" value="<?= htmlspecialchars((string) $idSeleccionado, ENT_QUOTES, 'UTF-8') ?>">
                                                 <?php endforeach; ?>
                                                 <input type="hidden" name="seleccionados[]" value="<?= htmlspecialchars((string) $filaId, ENT_QUOTES, 'UTF-8') ?>">
-                                                <button class="btn btn-sm btn-outline-primary mt-0" type="submit">Añadir</button>
+                                                <button class="btn btn-sm btn-outline-primary mt-0" type="submit">Anadir</button>
                                             </form>
                                         <?php endif; ?>
                                     </td>
@@ -174,20 +186,20 @@ renderAppLayoutStart(
         <div class="card-body">
             <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-3">
                 <div>
-                    <p class="eyebrow mb-1">Mercancía seleccionada para salida</p>
-                    <p class="mb-0 text-body-secondary">Revisa los artículos añadidos antes de generar el albarán.</p>
+                    <p class="eyebrow mb-1">Mercancia seleccionada para salida</p>
+                    <p class="mb-0 text-body-secondary">Revisa los articulos anadidos antes de pasar a la confirmacion del albaran.</p>
                 </div>
-                <form method="GET" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/albaran_pdf.php" target="_blank" class="d-inline-flex">
+                <form method="GET" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/albaran.php" class="d-inline-flex">
                     <input type="hidden" name="tipo" value="salida">
                     <?php foreach ($seleccionadosIds as $idSeleccionado): ?>
                         <input type="hidden" name="seleccionados[]" value="<?= htmlspecialchars((string) $idSeleccionado, ENT_QUOTES, 'UTF-8') ?>">
                     <?php endforeach; ?>
-                    <button class="btn btn-outline-primary" type="submit"<?= $mercanciaSeleccionada === [] ? ' disabled' : '' ?>>Generar albarán PDF</button>
+                    <button class="btn btn-outline-primary" type="submit"<?= $mercanciaSeleccionada === [] ? ' disabled' : '' ?>>Revisar albaran</button>
                 </form>
             </div>
 
             <?php if ($mercanciaSeleccionada === []): ?>
-                <div class="alert alert-light border mb-0">Todavía no hay mercancía añadida a la selección.</div>
+                <div class="alert alert-light border mb-0">Todavia no hay mercancia anadida a la seleccion.</div>
             <?php else: ?>
                 <div class="table-responsive custom-table-wrap">
                     <table class="table table-hover align-middle mb-0 data-table">
@@ -196,7 +208,7 @@ renderAppLayoutStart(
                                 <?php foreach ($columnasTabla as $titulo): ?>
                                     <th scope="col"><?= htmlspecialchars($titulo, ENT_QUOTES, 'UTF-8') ?></th>
                                 <?php endforeach; ?>
-                                <th scope="col">Acción</th>
+                                <th scope="col">Accion</th>
                             </tr>
                         </thead>
                         <tbody>

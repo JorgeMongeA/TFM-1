@@ -2,11 +2,31 @@
 
 declare(strict_types=1);
 
+function obtenerTokenSyncGoogleSheets(): string
+{
+    $token = 'congregaciones_sync_2026';
+
+    return $token;
+}
+
+function obtenerUrlWebAppGoogleSheets(array $config = []): string
+{
+    $urlDesplegada = 'https://script.google.com/macros/s/AKfycbwQmjbv9AeHXFrI8QzAn8Jzb8fdhWT3bYRwrIA6torWDc7iGrrfbaM3K7S2nido7ho/exec';
+    $urlConfigurada = trim((string) ($config['google_inventory_sync_url'] ?? ''));
+
+    if ($urlConfigurada !== '' && $urlConfigurada !== 'PONER_AQUI_URL_WEB_APP_DE_APPS_SCRIPT' && $urlConfigurada !== $urlDesplegada) {
+        error_log('[GOOGLE_SYNC] Se ignora google_inventory_sync_url por no coincidir con la URL desplegada actual.');
+    }
+
+    return $urlDesplegada;
+}
+
 function obtenerInventarioSql(PDO $pdo): array
 {
     $stmt = $pdo->query(
         'SELECT id, ubicacion, destino, editorial, fecha_entrada, codigo_centro, colegio, bultos, `orden`, fecha_salida, indicador_completa
          FROM inventario
+         WHERE estado = \'activo\'
          ORDER BY id ASC'
     );
 
@@ -15,10 +35,16 @@ function obtenerInventarioSql(PDO $pdo): array
     return array_map('normalizarFilaInventarioBidireccional', $filas);
 }
 
+function obtenerHistoricoPendienteSheets(PDO $pdo): array
+{
+    return array_map('normalizarFilaHistoricoSheets', obtenerLineasHistoricoPendientesSheets($pdo));
+}
+
 function llamarAppsScriptInventario(string $url, string $token, string $accion, array $payload = []): array
 {
     if (trim($url) === '' || trim($token) === '') {
-        throw new RuntimeException('Falta la configuración de URL o token para la sincronización bidireccional.');
+        error_log('[GOOGLE_SYNC] Falta URL o token para la accion ' . $accion);
+        throw new RuntimeException('No se ha podido sincronizar en este momento.');
     }
 
     $body = json_encode([
@@ -28,7 +54,8 @@ function llamarAppsScriptInventario(string $url, string $token, string $accion, 
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
     if ($body === false) {
-        throw new RuntimeException('No se pudo generar el JSON para Apps Script.');
+        error_log('[GOOGLE_SYNC] No se pudo generar el JSON para la accion ' . $accion);
+        throw new RuntimeException('No se ha podido sincronizar en este momento.');
     }
 
     $respuesta = false;
@@ -65,17 +92,30 @@ function llamarAppsScriptInventario(string $url, string $token, string $accion, 
     }
 
     if ($respuesta === false) {
-        throw new RuntimeException($error !== '' ? $error : 'No se pudo contactar con Apps Script.');
+        error_log('[GOOGLE_SYNC] No se pudo contactar con Apps Script en la accion ' . $accion . ($error !== '' ? ': ' . $error : ''));
+        throw new RuntimeException('No se ha podido sincronizar en este momento.');
     }
 
     $textoRespuesta = trim((string) $respuesta);
     $datos = json_decode($textoRespuesta, true);
     if (!is_array($datos)) {
         $fragmento = mb_substr($textoRespuesta, 0, 300);
-        throw new RuntimeException(
-            'Apps Script devolvió una respuesta JSON inválida.'
-            . ($fragmento !== '' ? ' Respuesta recibida: ' . $fragmento : '')
+        error_log(
+            '[GOOGLE_SYNC] Respuesta JSON invalida en la accion '
+            . $accion
+            . ($fragmento !== '' ? ' | ' . $fragmento : '')
         );
+        throw new RuntimeException('No se ha podido sincronizar en este momento.');
+    }
+
+    if (($datos['success'] ?? true) === false) {
+        $mensaje = trim((string) ($datos['message'] ?? $datos['error'] ?? ''));
+        error_log(
+            '[GOOGLE_SYNC] Apps Script rechazo la accion '
+            . $accion
+            . ($mensaje !== '' ? ' | ' . $mensaje : '')
+        );
+        throw new RuntimeException('No se ha podido sincronizar en este momento.');
     }
 
     return $datos;
@@ -195,26 +235,28 @@ function insertarInventarioEnSql(PDO $pdo, array $rows): array
 
     $insert = $pdo->prepare(
         'INSERT INTO inventario (
-            id, ubicacion, destino, editorial, fecha_entrada, codigo_centro, colegio, bultos, `orden`, fecha_salida, indicador_completa
+            id, ubicacion, destino, editorial, fecha_entrada, codigo_centro, colegio, bultos, `orden`, fecha_salida, indicador_completa, estado
          ) VALUES (
-            :id, :ubicacion, :destino, :editorial, :fecha_entrada, :codigo_centro, :colegio, :bultos, :orden, :fecha_salida, :indicador_completa
+            :id, :ubicacion, :destino, :editorial, :fecha_entrada, :codigo_centro, :colegio, :bultos, :orden, :fecha_salida, :indicador_completa, :estado
          )'
     );
-    $selectExiste = $pdo->prepare('SELECT id FROM inventario WHERE id = :id LIMIT 1');
+    $selectExiste = $pdo->prepare('SELECT id, estado FROM inventario WHERE id = :id LIMIT 1');
 
     foreach ($rows as $fila) {
         $filaNormalizada = normalizarFilaInventarioBidireccional($fila);
 
         if ($filaNormalizada['id'] === '') {
-            $resultado['errores'][] = 'Se ignoró una fila de Google Sheets sin ID.';
+            $resultado['errores'][] = 'Se ignoro una fila de Google Sheets sin ID.';
             continue;
         }
 
         try {
             $selectExiste->execute([':id' => (int) $filaNormalizada['id']]);
-            if ($selectExiste->fetchColumn() !== false) {
+            $registroExistente = $selectExiste->fetch();
+            if ($registroExistente !== false) {
                 $resultado['ignorados_por_existir'][] = $filaNormalizada['id'];
-                $resultado['errores'][] = 'ID ' . $filaNormalizada['id'] . ' ya existe en SQL, se evitó duplicado.';
+                $estadoExistente = trim((string) ($registroExistente['estado'] ?? ''));
+                $resultado['errores'][] = 'ID ' . $filaNormalizada['id'] . ' ya existe en SQL con estado ' . ($estadoExistente !== '' ? $estadoExistente : 'desconocido') . ', se evito duplicado.';
                 continue;
             }
 
@@ -230,6 +272,7 @@ function insertarInventarioEnSql(PDO $pdo, array $rows): array
                 ':orden' => $filaNormalizada['orden'],
                 ':fecha_salida' => $filaNormalizada['fecha_salida'],
                 ':indicador_completa' => $filaNormalizada['indicador_completa'],
+                ':estado' => 'activo',
             ]);
             $resultado['insertados']++;
         } catch (Throwable $e) {
@@ -264,14 +307,15 @@ function actualizarInventarioEnSql(PDO $pdo, array $rows): array
              `orden` = :orden,
              fecha_salida = :fecha_salida,
              indicador_completa = :indicador_completa
-         WHERE id = :id'
+         WHERE id = :id
+           AND estado = \'activo\''
     );
 
     foreach ($rows as $fila) {
         $filaNormalizada = normalizarFilaInventarioBidireccional($fila);
 
         if ($filaNormalizada['id'] === '') {
-            $resultado['errores'][] = 'Se ignoró una fila a actualizar sin ID.';
+            $resultado['errores'][] = 'Se ignoro una fila a actualizar sin ID.';
             continue;
         }
 
@@ -329,7 +373,7 @@ function sincronizarInventarioBidireccional(PDO $pdo, string $scriptUrl, string 
         );
 
         if (($respuestaAppend['success'] ?? true) === false) {
-            $errores[] = (string) ($respuestaAppend['error'] ?? 'Apps Script no confirmó la inserción en Google Sheets.');
+            $errores[] = (string) ($respuestaAppend['error'] ?? 'Apps Script no confirmo la insercion en Google Sheets.');
         }
 
         $inserted = $respuestaAppend['inserted'] ?? 0;
@@ -338,12 +382,14 @@ function sincronizarInventarioBidireccional(PDO $pdo, string $scriptUrl, string 
 
     $resultadoSql = insertarInventarioEnSql($pdo, $comparacion['para_insertar_en_sql']);
     $resultadoActualizacionSql = actualizarInventarioEnSql($pdo, $cambios['para_actualizar_en_sql']);
+
     if ($idsDuplicadosSql !== []) {
         $errores[] = 'IDs duplicados detectados en SQL: ' . implode(', ', $idsDuplicadosSql);
     }
     if ($idsDuplicadosSheet !== []) {
         $errores[] = 'IDs duplicados detectados en Google Sheets: ' . implode(', ', $idsDuplicadosSheet);
     }
+
     $errores = array_merge($errores, $resultadoSql['errores'], $resultadoActualizacionSql['errores']);
 
     return [
@@ -374,7 +420,7 @@ function extraerFilasInventarioDesdeAppsScript(array $respuesta): array
     $filas = $respuesta['payload'] ?? $respuesta['rows'] ?? [];
 
     if (!is_array($filas)) {
-        throw new RuntimeException('Apps Script no devolvió filas de inventario válidas.');
+        throw new RuntimeException('Apps Script no devolvio filas de inventario validas.');
     }
 
     return array_map('normalizarFilaInventarioBidireccional', $filas);
@@ -421,6 +467,26 @@ function normalizarFilaInventarioBidireccional(array $row): array
     ];
 }
 
+function normalizarFilaHistoricoSheets(array $row): array
+{
+    return [
+        'id' => normalizarIdInventarioBidireccional($row['id'] ?? ''),
+        'numero_albaran' => valorInventarioBidireccional($row['numero_albaran'] ?? null),
+        'editorial' => valorInventarioBidireccional($row['editorial'] ?? null),
+        'colegio' => valorInventarioBidireccional($row['colegio'] ?? null),
+        'codigo_centro' => valorInventarioBidireccional($row['codigo_centro'] ?? null),
+        'ubicacion' => valorInventarioBidireccional($row['ubicacion'] ?? null),
+        'fecha_entrada' => valorInventarioBidireccional($row['fecha_entrada'] ?? null),
+        'fecha_salida' => valorInventarioBidireccional($row['fecha_salida'] ?? null),
+        'fecha_confirmacion_salida' => valorInventarioBidireccional($row['fecha_confirmacion_salida'] ?? null),
+        'usuario_confirmacion' => valorInventarioBidireccional($row['usuario_confirmacion'] ?? null),
+        'bultos' => valorInventarioBidireccional($row['bultos'] ?? null),
+        'destino' => valorInventarioBidireccional($row['destino'] ?? null),
+        'orden' => valorInventarioBidireccional($row['orden'] ?? null),
+        'indicador_completa' => valorInventarioBidireccional($row['indicador_completa'] ?? null),
+    ];
+}
+
 function valorInventarioBidireccional(mixed $valor): ?string
 {
     if ($valor === null) {
@@ -458,7 +524,14 @@ function normalizarValorComparableInventario(string $campo, mixed $valor): ?stri
 /*
 Apps Script esperado:
 - action: get_inventory
-  Devuelve JSON con payload o rows, cada una con los campos del inventario.
+  Devuelve filas de la pestana Inventario, solo para stock activo.
 - action: append_inventory_rows
-  Recibe payload con filas nuevas y las añade a la pestaña inventario.
+  Inserta filas nuevas en la pestana Inventario.
+
+Preparacion para la fase de historico:
+- obtenerHistoricoPendienteSheets() devuelve las lineas confirmadas en SQL pendientes de mover a la pestana Historico.
+- El siguiente paso en Apps Script debe implementar operaciones equivalentes a:
+  - delete_inventory_rows_by_id
+  - upsert_history_rows
+  - confirm_history_sync
 */

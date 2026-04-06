@@ -1,14 +1,14 @@
 CREATE TABLE roles (
-id INT AUTO_INCREMENT PRIMARY KEY,
-nombre VARCHAR(50) UNIQUE
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(50) NOT NULL UNIQUE
 );
 
 CREATE TABLE usuarios (
-id INT AUTO_INCREMENT PRIMARY KEY,
-username VARCHAR(100) UNIQUE,
-password VARCHAR(255),
-rol_id INT,
-FOREIGN KEY (rol_id) REFERENCES roles(id)
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(100) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    rol_id INT NOT NULL,
+    FOREIGN KEY (rol_id) REFERENCES roles(id)
 );
 
 INSERT INTO roles (nombre) VALUES
@@ -24,10 +24,62 @@ VALUES (
 );
 
 CREATE TABLE centros (
-codigo_centro VARCHAR(50) PRIMARY KEY,
-nombre_centro VARCHAR(255) NULL,
-ciudad VARCHAR(150) NULL,
-tipo VARCHAR(100) NULL,
-codigo_grupo VARCHAR(50) NULL,
-actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    codigo_centro VARCHAR(50) PRIMARY KEY,
+    nombre_centro VARCHAR(255) NULL,
+    ciudad VARCHAR(150) NULL,
+    tipo VARCHAR(100) NULL,
+    codigo_grupo VARCHAR(50) NULL,
+    actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE inventario (
+    id INT PRIMARY KEY,
+    editorial VARCHAR(255) NOT NULL,
+    colegio VARCHAR(255) NOT NULL,
+    codigo_centro VARCHAR(50) NOT NULL,
+    ubicacion VARCHAR(255) NOT NULL,
+    fecha_entrada DATE NOT NULL,
+    fecha_salida DATE NULL,
+    bultos INT NULL,
+    destino VARCHAR(50) NULL,
+    `orden` VARCHAR(100) NULL,
+    indicador_completa VARCHAR(100) NULL,
+    estado ENUM('activo', 'historico') NOT NULL DEFAULT 'activo',
+    fecha_confirmacion_salida DATETIME NULL,
+    usuario_confirmacion_id INT NULL,
+    usuario_confirmacion VARCHAR(100) NULL,
+    numero_albaran VARCHAR(50) NULL,
+    sync_pendiente_historico TINYINT(1) NOT NULL DEFAULT 0,
+    fecha_sync_historico DATETIME NULL,
+    creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_inventario_estado (estado),
+    INDEX idx_inventario_codigo_centro (codigo_centro),
+    INDEX idx_inventario_numero_albaran (numero_albaran),
+    INDEX idx_inventario_confirmacion (fecha_confirmacion_salida),
+    INDEX idx_inventario_sync_historico (estado, sync_pendiente_historico)
+);
+
+CREATE TABLE albaranes_salida (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    numero_albaran VARCHAR(50) NOT NULL UNIQUE,
+    fecha_confirmacion DATETIME NOT NULL,
+    usuario_confirmacion_id INT NULL,
+    usuario_confirmacion VARCHAR(100) NULL,
+    empresa_recogida VARCHAR(150) NOT NULL DEFAULT 'MAXIMO SERVICIOS LOGISTICOS S.L.U.',
+    total_lineas INT NOT NULL,
+    total_bultos INT NOT NULL,
+    creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_albaranes_salida_fecha_confirmacion (fecha_confirmacion)
+);
+
+CREATE TABLE albaranes_salida_lineas (
+    albaran_id INT NOT NULL,
+    inventario_id INT NOT NULL,
+    PRIMARY KEY (albaran_id, inventario_id),
+    UNIQUE KEY uq_albaranes_salida_lineas_inventario (inventario_id),
+    CONSTRAINT fk_albaranes_salida_lineas_albaran
+        FOREIGN KEY (albaran_id) REFERENCES albaranes_salida(id),
+    CONSTRAINT fk_albaranes_salida_lineas_inventario
+        FOREIGN KEY (inventario_id) REFERENCES inventario(id)
 );

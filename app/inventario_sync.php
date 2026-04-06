@@ -27,13 +27,14 @@ function sincronizarInventarioDesdeCsv(PDO $pdo, string $csvUrl): array
            AND editorial = :editorial
            AND fecha_entrada = :fecha_entrada
            AND ubicacion = :ubicacion
+           AND estado = \'activo\'
          LIMIT 1'
     );
     $insert = $pdo->prepare(
         'INSERT INTO inventario (
-            id, editorial, colegio, codigo_centro, ubicacion, fecha_entrada, fecha_salida, bultos, destino, `orden`, indicador_completa
+            id, editorial, colegio, codigo_centro, ubicacion, fecha_entrada, fecha_salida, bultos, destino, `orden`, indicador_completa, estado
          ) VALUES (
-            :id, :editorial, :colegio, :codigo_centro, :ubicacion, :fecha_entrada, :fecha_salida, :bultos, :destino, :orden, :indicador_completa
+            :id, :editorial, :colegio, :codigo_centro, :ubicacion, :fecha_entrada, :fecha_salida, :bultos, :destino, :orden, :indicador_completa, :estado
          )'
     );
     $update = $pdo->prepare(
@@ -118,6 +119,7 @@ function procesarFilaInventario(
                 ':destino' => $datosFila['destino'],
                 ':orden' => null,
                 ':indicador_completa' => null,
+                ':estado' => 'activo',
             ]);
             $siguienteId++;
             $resumen['insertados']++;

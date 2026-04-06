@@ -36,14 +36,14 @@ function mostrarErrorGenericoAlbaran(): void
     http_response_code(500);
 
     renderAppLayoutStart(
-        'Albarán PDF',
+        'Albaran PDF',
         'albaran',
-        'Albarán PDF',
-        'Generación de albarán'
+        'Albaran PDF',
+        'Generacion de albaran'
     );
     ?>
     <section class="panel panel-card">
-        <div class="alert alert-danger mb-0">No se ha podido generar el albarán en este momento.</div>
+        <div class="alert alert-danger mb-0">No se ha podido generar el albaran en este momento.</div>
     </section>
     <?php
     renderAppLayoutEnd();
@@ -61,7 +61,7 @@ function cargarTcpdfLocal(): bool
     require_once $tcpdfPath;
 
     if (!class_exists('TCPDF')) {
-        registrarErrorAlbaran('La clase TCPDF no está disponible tras la carga local.');
+        registrarErrorAlbaran('La clase TCPDF no esta disponible tras la carga local.');
         return false;
     }
 
@@ -181,8 +181,14 @@ function dibujarFilaTablaAlbaran($pdf, array $columnas, array $fila, bool $fill)
     $pdf->Ln();
 }
 
-function dibujarCabeceraPaginaAlbaran($pdf, string $codigoDestino, DateTimeInterface $fechaGeneracion, ?string $logoPath, bool $continuacion = false): float
-{
+function dibujarCabeceraPaginaAlbaran(
+    $pdf,
+    string $codigoDestino,
+    DateTimeInterface $fechaGeneracion,
+    ?string $logoPath,
+    ?string $numeroAlbaran = null,
+    bool $continuacion = false
+): float {
     $destino = obtenerDestinoAlbaran($codigoDestino);
     $origen = obtenerLineasOrigenAlbaran();
 
@@ -193,24 +199,29 @@ function dibujarCabeceraPaginaAlbaran($pdf, string $codigoDestino, DateTimeInter
     } else {
         $pdf->SetXY(14, 14);
         $pdf->SetFont('dejavusans', 'B', 18);
-        $pdf->Cell(38, 10, 'MÁXIMO', 0, 0, 'L');
+        $pdf->Cell(38, 10, 'MAXIMO', 0, 0, 'L');
     }
 
     $pdf->SetXY(118, 14);
     $pdf->SetFont('dejavusans', 'B', 18);
-    $pdf->Cell(78, 8, 'Albarán de salida', 0, 1, 'R');
+    $pdf->Cell(78, 8, 'Albaran de salida', 0, 1, 'R');
 
     $pdf->SetX(118);
     $pdf->SetFont('dejavusans', '', 9);
-    $pdf->Cell(78, 5, 'Fecha de generación: ' . $fechaGeneracion->format('d/m/Y H:i'), 0, 1, 'R');
+    $pdf->Cell(78, 5, 'Fecha de generacion: ' . $fechaGeneracion->format('d/m/Y H:i'), 0, 1, 'R');
     $pdf->SetX(118);
     $pdf->Cell(78, 5, 'Destino: ' . $destino['codigo'] . ' (' . $destino['nombre'] . ')', 0, 1, 'R');
+
+    if ($numeroAlbaran !== null && trim($numeroAlbaran) !== '') {
+        $pdf->SetX(118);
+        $pdf->Cell(78, 5, 'Numero: ' . $numeroAlbaran, 0, 1, 'R');
+    }
 
     if ($continuacion) {
         $pdf->SetX(118);
         $pdf->SetFont('dejavusans', 'B', 8);
         $pdf->SetTextColor(72, 101, 129);
-        $pdf->Cell(78, 5, 'Continuación del albarán', 0, 1, 'R');
+        $pdf->Cell(78, 5, 'Continuacion del albaran', 0, 1, 'R');
     }
 
     $pdf->SetTextColor(31, 41, 51);
@@ -240,14 +251,14 @@ function dibujarCabeceraPaginaAlbaran($pdf, string $codigoDestino, DateTimeInter
     return 80.0;
 }
 
-function dibujarFirmasAlbaran($pdf, string $codigoDestino, DateTimeInterface $fechaGeneracion, ?string $logoPath): void
+function dibujarFirmasAlbaran($pdf, string $codigoDestino, DateTimeInterface $fechaGeneracion, ?string $logoPath, ?string $numeroAlbaran = null): void
 {
     $y = $pdf->GetY() + 8;
     $limite = 257.0;
 
     if ($y > $limite) {
         $pdf->AddPage();
-        $y = dibujarCabeceraPaginaAlbaran($pdf, $codigoDestino, $fechaGeneracion, $logoPath, true) + 12;
+        $y = dibujarCabeceraPaginaAlbaran($pdf, $codigoDestino, $fechaGeneracion, $logoPath, $numeroAlbaran, true) + 12;
     }
 
     $ancho = 88.0;
@@ -265,14 +276,20 @@ function dibujarFirmasAlbaran($pdf, string $codigoDestino, DateTimeInterface $fe
     }
 }
 
-function renderizarBloqueDestinoAlbaran($pdf, string $codigoDestino, array $lineas, DateTimeInterface $fechaGeneracion, ?string $logoPath): void
-{
+function renderizarBloqueDestinoAlbaran(
+    $pdf,
+    string $codigoDestino,
+    array $lineas,
+    DateTimeInterface $fechaGeneracion,
+    ?string $logoPath,
+    ?string $numeroAlbaran = null
+): void {
     $resumen = obtenerResumenMercanciaAlbaran($lineas);
     $columnas = columnasTablaAlbaranSalida();
     $filaPar = false;
 
     $pdf->AddPage();
-    $inicioTabla = dibujarCabeceraPaginaAlbaran($pdf, $codigoDestino, $fechaGeneracion, $logoPath);
+    $inicioTabla = dibujarCabeceraPaginaAlbaran($pdf, $codigoDestino, $fechaGeneracion, $logoPath, $numeroAlbaran);
 
     dibujarCajaResumenAlbaran(
         $pdf,
@@ -282,7 +299,7 @@ function renderizarBloqueDestinoAlbaran($pdf, string $codigoDestino, array $line
         20,
         'Resumen',
         (string) $resumen['bultos'],
-        'Cantidad total de bultos incluidos en este albarán.'
+        'Cantidad total de bultos incluidos en este albaran.'
     );
 
     dibujarCajaResumenAlbaran(
@@ -291,15 +308,15 @@ function renderizarBloqueDestinoAlbaran($pdf, string $codigoDestino, array $line
         $inicioTabla,
         88,
         20,
-        'Líneas',
+        'Lineas',
         (string) $resumen['lineas'],
-        'Líneas de mercancía incluidas en este albarán.'
+        'Lineas de mercancia incluidas en este albaran.'
     );
 
     $pdf->SetXY(14, $inicioTabla + 27);
     $pdf->SetFont('dejavusans', 'B', 11);
     $pdf->SetTextColor(16, 42, 67);
-    $pdf->Cell(182, 6, 'Detalle de mercancía', 0, 1, 'L');
+    $pdf->Cell(182, 6, 'Detalle de mercancia', 0, 1, 'L');
 
     $pdf->SetX(14);
     dibujarCabeceraTablaAlbaran($pdf, $columnas);
@@ -307,7 +324,7 @@ function renderizarBloqueDestinoAlbaran($pdf, string $codigoDestino, array $line
     foreach ($lineas as $fila) {
         if ($pdf->GetY() + 10 > 272) {
             $pdf->AddPage();
-            $pdf->SetY(dibujarCabeceraPaginaAlbaran($pdf, $codigoDestino, $fechaGeneracion, $logoPath, true));
+            $pdf->SetY(dibujarCabeceraPaginaAlbaran($pdf, $codigoDestino, $fechaGeneracion, $logoPath, $numeroAlbaran, true));
             $pdf->Ln(27);
             $pdf->SetX(14);
             dibujarCabeceraTablaAlbaran($pdf, $columnas);
@@ -318,14 +335,15 @@ function renderizarBloqueDestinoAlbaran($pdf, string $codigoDestino, array $line
         $filaPar = !$filaPar;
     }
 
-    dibujarFirmasAlbaran($pdf, $codigoDestino, $fechaGeneracion, $logoPath);
+    dibujarFirmasAlbaran($pdf, $codigoDestino, $fechaGeneracion, $logoPath, $numeroAlbaran);
 }
 
 $tipo = trim((string) ($_REQUEST['tipo'] ?? ''));
+$numeroAlbaran = trim((string) ($_REQUEST['numero_albaran'] ?? ''));
 $seleccionadosIds = leerIdsSeleccionadosDesdeRequest($_REQUEST);
 
-if ($tipo !== 'salida' || $seleccionadosIds === []) {
-    registrarErrorAlbaran('Petición de albarán inválida.', ['tipo' => $tipo, 'ids' => $seleccionadosIds]);
+if ($tipo !== 'salida' || ($seleccionadosIds === [] && $numeroAlbaran === '')) {
+    registrarErrorAlbaran('Peticion de albaran invalida.', ['tipo' => $tipo, 'ids' => $seleccionadosIds, 'numero_albaran' => $numeroAlbaran]);
     mostrarErrorGenericoAlbaran();
     return;
 }
@@ -337,17 +355,24 @@ if (!cargarTcpdfLocal()) {
 
 try {
     $pdo = conectar();
-    $mercanciaSeleccionada = consultarInventarioPorIds($pdo, $seleccionadosIds);
 
-    if ($mercanciaSeleccionada === []) {
-        throw new RuntimeException('No hay mercancía disponible para los IDs solicitados.');
+    if ($numeroAlbaran !== '') {
+        $mercanciaSeleccionada = consultarHistoricoPorNumeroAlbaran($pdo, $numeroAlbaran);
+    } else {
+        $mercanciaSeleccionada = consultarInventarioPorIds($pdo, $seleccionadosIds, INVENTARIO_ESTADO_ACTIVO);
     }
 
-    $idsEncontrados = array_map(static fn(array $fila): int => (int) ($fila['id'] ?? 0), $mercanciaSeleccionada);
-    $idsNoEncontrados = array_values(array_diff($seleccionadosIds, $idsEncontrados));
+    if ($mercanciaSeleccionada === []) {
+        throw new RuntimeException('No hay mercancia disponible para la solicitud indicada.');
+    }
 
-    if ($idsNoEncontrados !== []) {
-        throw new RuntimeException('La selección contiene mercancías no disponibles.');
+    if ($numeroAlbaran === '') {
+        $idsEncontrados = array_map(static fn(array $fila): int => (int) ($fila['id'] ?? 0), $mercanciaSeleccionada);
+        $idsNoEncontrados = array_values(array_diff($seleccionadosIds, $idsEncontrados));
+
+        if ($idsNoEncontrados !== []) {
+            throw new RuntimeException('La seleccion contiene mercancias no disponibles.');
+        }
     }
 
     $gruposPorDestino = agruparMercanciaPorDestinoAlbaran($mercanciaSeleccionada);
@@ -357,9 +382,9 @@ try {
 
     $pdf = new TCPDF('P', 'mm', 'A4', true, 'UTF-8', false);
     $pdf->SetCreator('Sistema interno de inventario');
-    $pdf->SetAuthor('MÁXIMO SERVICIOS LOGÍSTICOS S.L.U.');
-    $pdf->SetTitle('Albarán de salida');
-    $pdf->SetSubject('Documento logístico de salida');
+    $pdf->SetAuthor('MAXIMO SERVICIOS LOGISTICOS S.L.U.');
+    $pdf->SetTitle('Albaran de salida');
+    $pdf->SetSubject('Documento logistico de salida');
     $pdf->setPrintHeader(false);
     $pdf->setPrintFooter(false);
     $pdf->SetMargins(14, 12, 14);
@@ -367,15 +392,15 @@ try {
     $pdf->SetFont('dejavusans', '', 9);
 
     foreach ($gruposPorDestino as $codigoDestino => $lineas) {
-        renderizarBloqueDestinoAlbaran($pdf, $codigoDestino, $lineas, $fechaGeneracion, $logoDisponible);
+        renderizarBloqueDestinoAlbaran($pdf, $codigoDestino, $lineas, $fechaGeneracion, $logoDisponible, $numeroAlbaran !== '' ? $numeroAlbaran : null);
     }
 
-    $pdf->Output(construirNombreArchivoAlbaran($fechaGeneracion), 'I');
+    $pdf->Output(construirNombreArchivoAlbaran($fechaGeneracion, $numeroAlbaran !== '' ? $numeroAlbaran : null), 'I');
     exit;
 } catch (Throwable $e) {
     registrarErrorAlbaran(
-        'Fallo al generar el albarán.',
-        ['tipo' => $tipo, 'ids' => $seleccionadosIds],
+        'Fallo al generar el albaran.',
+        ['tipo' => $tipo, 'ids' => $seleccionadosIds, 'numero_albaran' => $numeroAlbaran],
         $e
     );
     mostrarErrorGenericoAlbaran();

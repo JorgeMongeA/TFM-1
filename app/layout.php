@@ -45,6 +45,11 @@ function menuLateral(): array
                     'key' => 'salida',
                 ],
                 [
+                    'label' => 'Historico',
+                    'href' => BASE_URL . '/historico.php',
+                    'key' => 'historico',
+                ],
+                [
                     'label' => 'Etiquetar',
                     'href' => BASE_URL . '/etiquetar.php',
                     'key' => 'etiquetar',

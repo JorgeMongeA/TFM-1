@@ -240,7 +240,17 @@ function columnasTablaAlbaranSalida(): array
     ];
 }
 
-function construirNombreArchivoAlbaran(DateTimeInterface $fechaGeneracion): string
+function construirNombreArchivoAlbaran(DateTimeInterface $fechaGeneracion, ?string $numeroAlbaran = null): string
 {
+    $identificador = trim((string) $numeroAlbaran);
+
+    if ($identificador !== '') {
+        $identificador = preg_replace('/[^A-Z0-9_-]+/i', '_', $identificador) ?? '';
+    }
+
+    if ($identificador !== '') {
+        return 'albaran_salida_' . $identificador . '.pdf';
+    }
+
     return 'albaran_salida_' . $fechaGeneracion->format('Ymd_His') . '.pdf';
 }
