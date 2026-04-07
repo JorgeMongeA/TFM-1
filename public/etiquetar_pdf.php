@@ -12,6 +12,7 @@ ini_set('display_errors', '0');
 ini_set('html_errors', '0');
 
 require_login();
+requierePermiso(PERMISO_ETIQUETAS);
 
 function registrarErrorEtiquetas(string $contexto, array $extra = [], ?Throwable $e = null): void
 {

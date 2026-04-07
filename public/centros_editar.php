@@ -8,6 +8,7 @@ require_once dirname(__DIR__) . '/app/centros.php';
 require_once dirname(__DIR__) . '/app/layout.php';
 
 require_login();
+requierePermiso(PERMISO_CENTROS_EDICION);
 
 $filtros = leerFiltrosCentrosDesdeRequest($_GET);
 $columnasTabla = columnasCentrosTabla(true);

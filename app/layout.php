@@ -2,19 +2,20 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/auth.php';
+
 function obtenerDatosUsuarioActual(): array
 {
     return [
-        'username' => (string) ($_SESSION['username'] ?? ''),
-        'rol_id' => (int) ($_SESSION['rol_id'] ?? 0),
+        'username' => (string) ($_SESSION['username'] ?? $_SESSION['usuario'] ?? ''),
+        'rol' => obtenerRolUsuario(),
+        'rol_label' => obtenerEtiquetaRolUsuario(),
     ];
 }
 
 function obtenerRolUsuarioActual(): string
 {
-    $rolId = (int) ($_SESSION['rol_id'] ?? 0);
-
-    return $rolId > 0 ? 'Rol ' . $rolId : '';
+    return obtenerEtiquetaRolUsuario();
 }
 
 function menuLateral(): array
@@ -24,6 +25,7 @@ function menuLateral(): array
             'label' => 'Dashboard',
             'href' => BASE_URL . '/dashboard.php',
             'key' => 'dashboard',
+            'permission' => PERMISO_DASHBOARD,
         ],
         [
             'label' => 'Inventario',
@@ -33,33 +35,45 @@ function menuLateral(): array
                     'label' => 'Consulta',
                     'href' => BASE_URL . '/inventario_consulta.php',
                     'key' => 'inventario_consulta',
+                    'permission' => PERMISO_INVENTARIO_CONSULTA,
                 ],
                 [
                     'label' => 'Entrada',
                     'href' => BASE_URL . '/entrada.php',
                     'key' => 'entrada',
+                    'permission' => PERMISO_INVENTARIO_EDICION,
                 ],
                 [
                     'label' => 'Salida',
                     'href' => BASE_URL . '/salida.php',
                     'key' => 'salida',
+                    'permission' => PERMISO_INVENTARIO_SALIDA,
                 ],
                 [
                     'label' => 'Historico',
                     'href' => BASE_URL . '/historico.php',
                     'key' => 'historico',
+                    'permission' => PERMISO_HISTORICO,
                 ],
                 [
                     'label' => 'Etiquetar',
                     'href' => BASE_URL . '/etiquetar.php',
                     'key' => 'etiquetar',
+                    'permission' => PERMISO_ETIQUETAS,
                 ],
                 [
-                    'label' => 'Albarán',
+                    'label' => 'Albaran',
                     'href' => BASE_URL . '/albaran.php',
                     'key' => 'albaran',
+                    'permission' => PERMISO_ALBARANES,
                 ],
             ],
+        ],
+        [
+            'label' => 'Pedidos',
+            'href' => BASE_URL . '/pedidos.php',
+            'key' => 'pedidos',
+            'permission' => PERMISO_PEDIDOS,
         ],
         [
             'label' => 'Centros',
@@ -69,15 +83,53 @@ function menuLateral(): array
                     'label' => 'Consulta',
                     'href' => BASE_URL . '/centros.php',
                     'key' => 'centros_consulta',
+                    'permission' => PERMISO_CENTROS_CONSULTA,
                 ],
                 [
                     'label' => 'Editar',
                     'href' => BASE_URL . '/centros_editar.php',
                     'key' => 'centros_editar',
+                    'permission' => PERMISO_CENTROS_EDICION,
                 ],
             ],
         ],
     ];
+}
+
+function itemMenuVisible(array $item): bool
+{
+    $permission = trim((string) ($item['permission'] ?? ''));
+
+    if ($permission !== '' && !usuarioTienePermiso($permission)) {
+        return false;
+    }
+
+    return true;
+}
+
+function filtrarMenuPorPermisos(array $items): array
+{
+    $menuFiltrado = [];
+
+    foreach ($items as $item) {
+        $itemFiltrado = $item;
+
+        if (isset($itemFiltrado['children']) && is_array($itemFiltrado['children'])) {
+            $itemFiltrado['children'] = filtrarMenuPorPermisos($itemFiltrado['children']);
+        }
+
+        if (!itemMenuVisible($itemFiltrado)) {
+            continue;
+        }
+
+        if (isset($itemFiltrado['children']) && $itemFiltrado['children'] === []) {
+            continue;
+        }
+
+        $menuFiltrado[] = $itemFiltrado;
+    }
+
+    return $menuFiltrado;
 }
 
 function itemMenuActivo(array $item, string $activeKey): bool
@@ -124,7 +176,7 @@ function renderAppLayoutStart(string $title, string $activeKey, ?string $pageTit
 {
     $user = obtenerDatosUsuarioActual();
     $rol = obtenerRolUsuarioActual();
-    $menu = menuLateral();
+    $menu = filtrarMenuPorPermisos(menuLateral());
 
     renderAppHeader($title);
     ?>
@@ -145,7 +197,7 @@ function renderAppLayoutStart(string $title, string $activeKey, ?string $pageTit
                 </div>
             </div>
 
-            <nav class="sidebar-nav" aria-label="Navegación principal">
+            <nav class="sidebar-nav" aria-label="Navegacion principal">
                 <?php foreach ($menu as $item): ?>
                     <?php $activo = itemMenuActivo($item, $activeKey); ?>
                     <div class="sidebar-group">
@@ -172,7 +224,7 @@ function renderAppLayoutStart(string $title, string $activeKey, ?string $pageTit
             <nav class="topbar navbar navbar-expand-lg d-lg-none bg-white border-bottom">
                 <div class="container-fluid px-3">
                     <span class="navbar-brand mb-0 h1">CONGREGACIONES</span>
-                    <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar" aria-label="Abrir navegación">
+                    <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar" aria-label="Abrir navegacion">
                         <span class="navbar-toggler-icon"></span>
                     </button>
                 </div>
@@ -195,7 +247,7 @@ function renderAppLayoutStart(string $title, string $activeKey, ?string $pageTit
                         <?php endif; ?>
                     </div>
 
-                    <nav class="sidebar-nav" aria-label="Navegación móvil">
+                    <nav class="sidebar-nav" aria-label="Navegacion movil">
                         <?php foreach ($menu as $item): ?>
                             <?php $activo = itemMenuActivo($item, $activeKey); ?>
                             <div class="sidebar-group">
@@ -228,8 +280,10 @@ function renderAppLayoutStart(string $title, string $activeKey, ?string $pageTit
                         <?php endif; ?>
                     </div>
                     <div class="page-header-actions d-flex flex-wrap gap-2">
-                        <a class="btn btn-outline-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/cambiar_password.php">Cambiar contraseña</a>
-                        <a class="btn btn-outline-danger" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/logout.php">Cerrar sesión</a>
+                        <?php if (puedeCambiarPassword()): ?>
+                            <a class="btn btn-outline-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/cambiar_password.php">Cambiar contrasena</a>
+                        <?php endif; ?>
+                        <a class="btn btn-outline-danger" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/logout.php">Cerrar sesion</a>
                     </div>
                 </div>
     <?php

@@ -8,6 +8,7 @@ require_once dirname(__DIR__) . '/app/layout.php';
 require_once dirname(__DIR__) . '/app/inventario.php';
 
 require_login();
+requierePermiso(PERMISO_HISTORICO);
 
 $filtros = leerFiltrosInventarioDesdeRequest($_GET, filtrosHistoricoPermitidos());
 [$ordenar, $direccion] = leerOrdenInventarioDesdeRequest($_GET, columnasHistoricoOrdenables(), 'fecha_confirmacion_salida');

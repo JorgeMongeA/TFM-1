@@ -8,23 +8,24 @@ require_once dirname(__DIR__) . '/app/auth.php';
 iniciar_sesion();
 
 if (isset($_SESSION['user_id'])) {
-    header('Location: ' . BASE_URL . '/dashboard.php');
+    header('Location: ' . urlInicioSegunPermisos());
     exit;
 }
 
 $error = '';
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-    $username = trim((string) ($_POST['username'] ?? ''));
-    $password = trim((string) ($_POST['password'] ?? ''));
+    $username = trim((string) ($_POST['username'] ?? $_POST['usuario'] ?? ''));
+    $password = (string) ($_POST['password'] ?? $_POST['contrasena'] ?? '');
 
     try {
         if (login($username, $password)) {
-            header('Location: ' . BASE_URL . '/dashboard.php');
+            header('Location: ' . urlInicioSegunPermisos());
             exit;
         }
+
         $error = 'Usuario o contraseña incorrectos';
     } catch (RuntimeException $e) {
-        $error = 'Error de conexión con la base de datos';
+        $error = 'Usuario o contraseña incorrectos';
     }
 }
 ?>
@@ -48,7 +49,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
             <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/login.php">
                 <label for="username">Usuario</label>
-                <input id="username" name="username" type="text" required>
+                <input
+                    id="username"
+                    name="username"
+                    type="text"
+                    required
+                    value="<?= htmlspecialchars((string) ($_POST['username'] ?? $_POST['usuario'] ?? ''), ENT_QUOTES, 'UTF-8') ?>"
+                >
 
                 <label for="password">Contraseña</label>
                 <input id="password" name="password" type="password" required>

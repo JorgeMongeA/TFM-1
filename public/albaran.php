@@ -10,6 +10,7 @@ require_once dirname(__DIR__) . '/app/albaranes.php';
 require_once dirname(__DIR__) . '/app/salidas.php';
 
 require_login();
+requierePermiso(PERMISO_ALBARANES);
 
 function tokenConfirmacionAlbaran(): string
 {

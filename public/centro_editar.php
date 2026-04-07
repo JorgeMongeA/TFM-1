@@ -8,6 +8,7 @@ require_once dirname(__DIR__) . '/app/centros.php';
 require_once dirname(__DIR__) . '/app/layout.php';
 
 require_login();
+requierePermiso(PERMISO_CENTROS_EDICION);
 
 $codigoOriginal = trim((string) ($_GET['codigo_centro'] ?? $_POST['codigo_original'] ?? ''));
 $error = '';

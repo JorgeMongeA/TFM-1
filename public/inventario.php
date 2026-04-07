@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once dirname(__DIR__) . '/app/auth.php';
 
 require_login();
+requierePermiso(PERMISO_INVENTARIO_CONSULTA);
 
 header('Location: ' . BASE_URL . '/inventario_consulta.php');
 exit;

@@ -10,6 +10,7 @@ require_once dirname(__DIR__) . '/app/inventario_sync.php';
 require_once dirname(__DIR__) . '/app/inventario_sync_bidireccional.php';
 
 require_login();
+requierePermiso(PERMISO_INVENTARIO_CONSULTA);
 
 $filtros = leerFiltrosInventarioDesdeRequest($_GET);
 [$ordenar, $direccion] = leerOrdenInventarioDesdeRequest($_GET);
@@ -25,6 +26,7 @@ try {
     $pdo = conectar();
 
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+        requierePermiso(PERMISO_SINCRONIZACIONES, 'No tienes permisos para sincronizar inventario.');
         $config = cargarConfiguracion();
         $accionSincronizacion = trim((string) ($_POST['sync_action'] ?? 'csv'));
 
@@ -85,6 +87,7 @@ renderAppLayoutStart(
                 </form>
             </div>
         </div>
+        <?php if (puedeSincronizar()): ?>
         <div class="card border-0 shadow-sm sync-card">
             <div class="card-body">
                 <p class="eyebrow">Sincronización</p>
@@ -103,6 +106,7 @@ renderAppLayoutStart(
                 </div>
             </div>
         </div>
+        <?php endif; ?>
     </div>
 
     <?php if ($errorCarga !== ''): ?>

@@ -8,7 +8,7 @@ function obtenerUsuarioOperacionActual(): array
 {
     return [
         'user_id' => isset($_SESSION['user_id']) ? (int) $_SESSION['user_id'] : null,
-        'username' => trim((string) ($_SESSION['username'] ?? '')),
+        'username' => trim((string) ($_SESSION['username'] ?? $_SESSION['usuario'] ?? '')),
     ];
 }
 

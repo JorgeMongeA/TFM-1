@@ -9,6 +9,7 @@ require_once dirname(__DIR__) . '/app/inventario.php';
 require_once dirname(__DIR__) . '/app/albaranes.php';
 
 require_login();
+requierePermiso(PERMISO_ETIQUETAS);
 
 function leerIdsEtiquetasDesdeRequest(array $source): array
 {

@@ -8,6 +8,7 @@ require_once dirname(__DIR__) . '/app/layout.php';
 require_once dirname(__DIR__) . '/app/centros.php';
 
 require_login();
+requierePermiso(PERMISO_INVENTARIO_EDICION);
 
 const DESTINOS_PERMITIDOS = ['EDV', 'EPL'];
 

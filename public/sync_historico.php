@@ -7,6 +7,7 @@ require_once dirname(__DIR__) . '/app/auth.php';
 require_once dirname(__DIR__) . '/app/inventario_sync_historico.php';
 
 require_login();
+requierePermiso(PERMISO_SINCRONIZACIONES, 'No tienes permisos para sincronizar el historico.');
 
 iniciar_sesion();
 

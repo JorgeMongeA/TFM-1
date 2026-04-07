@@ -6,6 +6,7 @@ require_once dirname(__DIR__) . '/app/auth.php';
 require_once dirname(__DIR__) . '/app/conexion.php';
 
 require_login();
+requierePermiso(PERMISO_ETIQUETAS);
 
 $id = (int) ($_GET['id'] ?? 0);
 
