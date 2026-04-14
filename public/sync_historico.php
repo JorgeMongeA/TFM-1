@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/app/conexion.php';
+require_once dirname(__DIR__) . '/app/actividad.php';
 require_once dirname(__DIR__) . '/app/auth.php';
 require_once dirname(__DIR__) . '/app/inventario_sync_historico.php';
 
@@ -23,6 +24,19 @@ try {
 
     $pdo = conectar();
     $resultado = sincronizarHistoricoConGoogleSheets($pdo, $scriptUrl, $token);
+    $usuario = obtenerContextoActividadActual();
+
+    registrarActividadSistema($pdo, [
+        'usuario_id' => isset($usuario['user_id']) ? (int) $usuario['user_id'] : null,
+        'usuario' => (string) ($usuario['username'] ?? ''),
+        'tipo_evento' => ACTIVIDAD_TIPO_SYNC_HISTORICO,
+        'entidad' => 'historico',
+        'descripcion' => 'Sincronizacion de historico con Google Sheets',
+        'metadata' => [
+            'insertados_historico' => (int) ($resultado['insertados_historico'] ?? 0),
+            'ya_existian_historico' => (int) ($resultado['ya_existian_historico'] ?? 0),
+        ],
+    ]);
 
     $_SESSION['flash_sync_historico'] = [
         'ok' => true,

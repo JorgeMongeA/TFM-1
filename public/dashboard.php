@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/app/auth.php';
+require_once dirname(__DIR__) . '/app/conexion.php';
+require_once dirname(__DIR__) . '/app/actividad.php';
 require_once dirname(__DIR__) . '/app/layout.php';
 
 require_login();
@@ -11,6 +13,8 @@ requierePermiso(PERMISO_DASHBOARD);
 $username = (string) ($_SESSION['username'] ?? $_SESSION['usuario'] ?? '');
 $rol = obtenerRolUsuarioActual();
 $accesos = [];
+$ultimaActividad = [];
+$errorActividad = '';
 
 if (puedeVerInventario()) {
     $accesos[] = [
@@ -48,6 +52,13 @@ if (puedeAccederCentros()) {
             : 'Consulta de centros disponibles.',
         'href' => BASE_URL . '/centros.php',
     ];
+}
+
+try {
+    $pdo = conectar();
+    $ultimaActividad = obtenerUltimaActividad($pdo, 8);
+} catch (Throwable $e) {
+    $errorActividad = 'No se ha podido cargar la actividad reciente.';
 }
 
 renderAppLayoutStart(
@@ -94,6 +105,55 @@ renderAppLayoutStart(
                             </a>
                         <?php endforeach; ?>
                     </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12">
+            <div class="card border-0 shadow-sm activity-card">
+                <div class="card-body">
+                    <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-2 mb-3">
+                        <div>
+                            <p class="eyebrow mb-1">Actividad reciente</p>
+                            <h2 class="section-title">Ultima actividad</h2>
+                        </div>
+                        <p class="mb-0 text-body-secondary">Ultimos movimientos relevantes del sistema, ordenados de mas reciente a mas antiguo.</p>
+                    </div>
+
+                    <?php if ($errorActividad !== ''): ?>
+                        <div class="alert alert-light border mb-0"><?= htmlspecialchars($errorActividad, ENT_QUOTES, 'UTF-8') ?></div>
+                    <?php elseif ($ultimaActividad === []): ?>
+                        <div class="alert alert-light border mb-0">Todavia no hay actividad registrada para mostrar.</div>
+                    <?php else: ?>
+                        <div class="activity-feed">
+                            <?php foreach ($ultimaActividad as $actividad): ?>
+                                <article class="activity-item">
+                                    <div class="activity-icon activity-icon--<?= htmlspecialchars((string) ($actividad['tipo_evento'] ?? 'sistema'), ENT_QUOTES, 'UTF-8') ?>">
+                                        <?= htmlspecialchars((string) ($actividad['icono'] ?? '•'), ENT_QUOTES, 'UTF-8') ?>
+                                    </div>
+                                    <div class="activity-content">
+                                        <div class="d-flex flex-column flex-xl-row align-items-xl-center gap-2 mb-1">
+                                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                                <span class="activity-time"><?= htmlspecialchars((string) ($actividad['tiempo_relativo'] ?? ''), ENT_QUOTES, 'UTF-8') ?></span>
+                                                <span class="badge <?= htmlspecialchars((string) ($actividad['badge'] ?? 'text-bg-secondary'), ENT_QUOTES, 'UTF-8') ?>">
+                                                    <?= htmlspecialchars(actividadEtiqueta((string) ($actividad['tipo_evento'] ?? '')), ENT_QUOTES, 'UTF-8') ?>
+                                                </span>
+                                            </div>
+                                            <span class="activity-date"><?= htmlspecialchars((string) ($actividad['fecha_evento_legible'] ?? '-'), ENT_QUOTES, 'UTF-8') ?></span>
+                                        </div>
+                                        <p class="activity-text mb-1">
+                                            <?= htmlspecialchars((string) ($actividad['descripcion'] ?? ''), ENT_QUOTES, 'UTF-8') ?>
+                                        </p>
+                                        <div class="activity-meta">
+                                            <span>Usuario <?= htmlspecialchars((string) (($actividad['usuario'] ?? '') !== '' ? $actividad['usuario'] : 'sistema'), ENT_QUOTES, 'UTF-8') ?></span>
+                                            <?php if (((string) ($actividad['entidad_codigo'] ?? '')) !== ''): ?>
+                                                <span>Referencia <?= htmlspecialchars((string) $actividad['entidad_codigo'], ENT_QUOTES, 'UTF-8') ?></span>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </article>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>

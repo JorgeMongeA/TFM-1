@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/actividad.php';
+
 const EMPRESA_RECOGIDA_POR_DEFECTO = 'MAXIMO SERVICIOS LOGISTICOS S.L.U.';
 
 function obtenerUsuarioOperacionActual(): array
@@ -35,6 +37,20 @@ function confirmarAlbaranSalida(PDO $pdo, array $ids, array $usuario): array
         actualizarNumeroAlbaranCabecera($pdo, $albaranId, $numeroAlbaran);
         insertarLineasAlbaranSalida($pdo, $albaranId, $ids);
         moverLineasInventarioAHistorico($pdo, $ids, $numeroAlbaran, $fechaConfirmacion, $usuarioId, $username);
+        registrarActividadSistema($pdo, [
+            'usuario_id' => $usuarioId,
+            'usuario' => $username,
+            'tipo_evento' => ACTIVIDAD_TIPO_ALBARAN_CONFIRMADO,
+            'entidad' => 'albaran',
+            'entidad_id' => $albaranId,
+            'entidad_codigo' => $numeroAlbaran,
+            'descripcion' => 'Confirmacion de albaran ' . $numeroAlbaran,
+            'metadata' => [
+                'total_lineas' => (int) ($resumen['total_lineas'] ?? 0),
+                'total_bultos' => (int) ($resumen['total_bultos'] ?? 0),
+            ],
+            'fecha_evento' => $fechaConfirmacion,
+        ]);
 
         $pdo->commit();
 

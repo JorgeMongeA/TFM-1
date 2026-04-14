@@ -329,6 +329,160 @@ select:focus {
     border-color: #bfd1e3;
 }
 
+.activity-card {
+    background:
+        radial-gradient(circle at top right, rgba(31, 79, 138, 0.08), transparent 28%),
+        linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.activity-feed {
+    display: grid;
+    gap: 14px;
+}
+
+.activity-item {
+    display: grid;
+    grid-template-columns: 52px minmax(0, 1fr);
+    gap: 14px;
+    padding: 16px 0;
+    border-top: 1px solid rgba(95, 117, 144, 0.16);
+}
+
+.activity-item:first-child {
+    padding-top: 0;
+    border-top: 0;
+}
+
+.activity-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 700;
+    color: #17395b;
+    background: #e8f0fa;
+    border: 1px solid rgba(31, 79, 138, 0.12);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.activity-icon--pedido_creado {
+    background: #e7f0fd;
+    color: #1f4f8a;
+}
+
+.activity-icon--pedido_estado {
+    background: #eaf8fb;
+    color: #0a6c7d;
+}
+
+.activity-icon--albaran_confirmado {
+    background: #e9f7ef;
+    color: #1d6f42;
+}
+
+.activity-icon--sync_historico {
+    background: #fff6e5;
+    color: #946200;
+}
+
+.activity-content {
+    min-width: 0;
+}
+
+.activity-time {
+    font-size: 13px;
+    font-weight: 700;
+    color: #17395b;
+}
+
+.activity-date,
+.activity-meta,
+.pedido-timeline-date,
+.pedido-timeline-meta,
+.pedido-timeline-relative {
+    color: var(--text-soft);
+    font-size: 13px;
+}
+
+.activity-text,
+.pedido-timeline-text {
+    font-size: 15px;
+    color: #213348;
+}
+
+.activity-meta,
+.pedido-timeline-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+}
+
+.pedido-timeline-card {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(244, 248, 253, 0.98) 100%);
+    border-color: #d8e3ef !important;
+}
+
+.pedido-timeline {
+    position: relative;
+    display: grid;
+    gap: 18px;
+}
+
+.pedido-timeline::before {
+    content: "";
+    position: absolute;
+    top: 8px;
+    bottom: 8px;
+    left: 17px;
+    width: 2px;
+    background: linear-gradient(180deg, #c5d7ea 0%, #dce8f4 100%);
+}
+
+.pedido-timeline-item {
+    position: relative;
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 18px;
+}
+
+.pedido-timeline-marker {
+    position: relative;
+    z-index: 1;
+}
+
+.pedido-timeline-dot {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: #17395b;
+    background: #ffffff;
+    border: 2px solid #c8d7e6;
+    box-shadow: 0 6px 16px rgba(18, 52, 85, 0.08);
+}
+
+.pedido-timeline-dot--pedido_creado {
+    border-color: #1f4f8a;
+    color: #1f4f8a;
+}
+
+.pedido-timeline-dot--pedido_estado {
+    border-color: #70a6b5;
+    color: #0a6c7d;
+}
+
+.pedido-timeline-content {
+    padding: 4px 0 0;
+}
+
 .debug-pre {
     margin: 0;
     max-height: 320px;
@@ -383,6 +537,17 @@ select:focus {
     .sync-card {
         max-width: none;
     }
+
+    .activity-item {
+        grid-template-columns: 44px minmax(0, 1fr);
+    }
+
+    .activity-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        font-size: 16px;
+    }
 }
 
 @media (max-width: 767.98px) {
@@ -405,5 +570,20 @@ select:focus {
 
     .page-header-actions .btn {
         width: 100%;
+    }
+
+    .pedido-timeline-item {
+        grid-template-columns: 30px minmax(0, 1fr);
+        gap: 14px;
+    }
+
+    .pedido-timeline::before {
+        left: 14px;
+    }
+
+    .pedido-timeline-dot {
+        width: 30px;
+        height: 30px;
+        font-size: 12px;
     }
 }

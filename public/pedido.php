@@ -7,6 +7,7 @@ require_once dirname(__DIR__) . '/app/auth.php';
 require_once dirname(__DIR__) . '/app/layout.php';
 require_once dirname(__DIR__) . '/app/inventario.php';
 require_once dirname(__DIR__) . '/app/pedidos.php';
+require_once dirname(__DIR__) . '/app/actividad.php';
 
 require_login();
 requierePermiso(PERMISO_PEDIDOS, 'No tienes permisos para acceder a este pedido.');
@@ -15,6 +16,7 @@ $pedidoId = (int) ($_GET['id'] ?? $_POST['id'] ?? 0);
 $usuarioPedido = obtenerUsuarioPedidoActual();
 $pedido = null;
 $lineasPedido = [];
+$timelinePedido = [];
 $error = '';
 $mensaje = '';
 $flashPedido = $_SESSION['flash_pedido'] ?? null;
@@ -55,6 +57,7 @@ try {
     }
 
     $lineasPedido = consultarLineasPedido($pdo, $pedidoId);
+    $timelinePedido = obtenerTimelinePedido($pdo, $pedidoId);
 } catch (Throwable $e) {
     $mensajeError = trim($e->getMessage());
     $error = $mensajeError !== '' ? $mensajeError : 'No se ha podido cargar el pedido.';
@@ -148,6 +151,58 @@ renderAppLayoutStart(
                         </div>
                     </form>
                 <?php endif; ?>
+
+                <div class="pedido-timeline-card border rounded-4 p-3 p-lg-4 bg-light mb-4">
+                    <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-2 mb-3">
+                        <div>
+                            <p class="eyebrow mb-1">Seguimiento</p>
+                            <h3 class="section-title mb-0">Timeline del pedido</h3>
+                        </div>
+                        <p class="mb-0 text-body-secondary">Evolucion del pedido con cambios de estado y responsables.</p>
+                    </div>
+
+                    <?php if ($timelinePedido === []): ?>
+                        <div class="alert alert-light border mb-0">Este pedido todavia no tiene eventos registrados.</div>
+                    <?php else: ?>
+                        <div class="pedido-timeline">
+                            <?php foreach ($timelinePedido as $evento): ?>
+                                <article class="pedido-timeline-item">
+                                    <div class="pedido-timeline-marker">
+                                        <span class="pedido-timeline-dot pedido-timeline-dot--<?= htmlspecialchars((string) ($evento['tipo_evento'] ?? 'evento'), ENT_QUOTES, 'UTF-8') ?>">
+                                            <?= htmlspecialchars((string) ($evento['icono'] ?? '•'), ENT_QUOTES, 'UTF-8') ?>
+                                        </span>
+                                    </div>
+                                    <div class="pedido-timeline-content">
+                                        <div class="d-flex flex-column flex-xl-row align-items-xl-center justify-content-between gap-2 mb-2">
+                                            <div class="d-flex flex-wrap gap-2 align-items-center">
+                                                <span class="badge <?= htmlspecialchars((string) ($evento['badge'] ?? 'text-bg-secondary'), ENT_QUOTES, 'UTF-8') ?>">
+                                                    <?php if ((string) ($evento['tipo_evento'] ?? '') === PEDIDO_EVENTO_CREADO): ?>
+                                                        Creacion
+                                                    <?php else: ?>
+                                                        <?= htmlspecialchars(etiquetaEstadoPedido((string) ($evento['estado_nuevo'] ?? '')), ENT_QUOTES, 'UTF-8') ?>
+                                                    <?php endif; ?>
+                                                </span>
+                                                <span class="pedido-timeline-relative"><?= htmlspecialchars((string) ($evento['tiempo_relativo'] ?? ''), ENT_QUOTES, 'UTF-8') ?></span>
+                                            </div>
+                                            <span class="pedido-timeline-date"><?= htmlspecialchars((string) ($evento['fecha_evento_legible'] ?? '-'), ENT_QUOTES, 'UTF-8') ?></span>
+                                        </div>
+                                        <p class="pedido-timeline-text mb-2"><?= htmlspecialchars((string) ($evento['descripcion'] ?? ''), ENT_QUOTES, 'UTF-8') ?></p>
+                                        <div class="pedido-timeline-meta">
+                                            <span>Usuario <?= htmlspecialchars((string) (($evento['usuario'] ?? '') !== '' ? $evento['usuario'] : 'sistema'), ENT_QUOTES, 'UTF-8') ?></span>
+                                            <?php if (((string) ($evento['estado_anterior'] ?? '')) !== '' && ((string) ($evento['estado_nuevo'] ?? '')) !== ''): ?>
+                                                <span>
+                                                    <?= htmlspecialchars(etiquetaEstadoPedido((string) $evento['estado_anterior']), ENT_QUOTES, 'UTF-8') ?>
+                                                    →
+                                                    <?= htmlspecialchars(etiquetaEstadoPedido((string) $evento['estado_nuevo']), ENT_QUOTES, 'UTF-8') ?>
+                                                </span>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </article>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
 
                 <?php if ($lineasPedido === []): ?>
                     <div class="alert alert-light border mb-0">Este pedido no contiene lineas.</div>

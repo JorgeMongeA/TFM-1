@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/inventario.php';
+require_once __DIR__ . '/actividad.php';
 
 const PEDIDO_ESTADO_PENDIENTE = 'pendiente';
 const PEDIDO_ESTADO_EN_PREPARACION = 'en_preparacion';
@@ -307,6 +308,35 @@ function crearPedido(PDO $pdo, array $inventarioIds, array $usuario, string $obs
             throw new RuntimeException('No se ha podido recuperar el pedido creado.');
         }
 
+        registrarEventoPedido($pdo, $pedidoId, [
+            'tipo_evento' => PEDIDO_EVENTO_CREADO,
+            'estado_nuevo' => PEDIDO_ESTADO_PENDIENTE,
+            'usuario_id' => $usuarioId,
+            'usuario' => $username,
+            'descripcion' => 'Pedido creado por ' . $username . '.',
+            'metadata' => [
+                'codigo_pedido' => $codigoPedido,
+                'total_lineas' => (int) ($resumen['total_lineas'] ?? 0),
+                'total_bultos' => (int) ($resumen['total_bultos'] ?? 0),
+            ],
+            'fecha_evento' => $fechaCreacion,
+        ]);
+
+        registrarActividadSistema($pdo, [
+            'usuario_id' => $usuarioId,
+            'usuario' => $username,
+            'tipo_evento' => ACTIVIDAD_TIPO_PEDIDO_CREADO,
+            'entidad' => 'pedido',
+            'entidad_id' => $pedidoId,
+            'entidad_codigo' => $codigoPedido,
+            'descripcion' => 'Creacion de pedido ' . $codigoPedido,
+            'metadata' => [
+                'total_lineas' => (int) ($resumen['total_lineas'] ?? 0),
+                'total_bultos' => (int) ($resumen['total_bultos'] ?? 0),
+            ],
+            'fecha_evento' => $fechaCreacion,
+        ]);
+
         return [
             'pedido' => $pedido,
             'lineas' => $lineasInventario,
@@ -337,25 +367,83 @@ function actualizarEstadoPedido(PDO $pdo, int $pedidoId, string $estado, array $
     }
 
     $estado = normalizarEstadoPedido($estado);
+    $estadoAnterior = normalizarEstadoPedido((string) ($pedido['estado'] ?? PEDIDO_ESTADO_PENDIENTE));
     $usuarioId = isset($usuario['user_id']) && (int) $usuario['user_id'] > 0 ? (int) $usuario['user_id'] : null;
     $username = trim((string) ($usuario['username'] ?? ''));
     $fechaGestion = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
 
-    $stmt = $pdo->prepare(
-        'UPDATE pedidos
-         SET estado = :estado,
-             usuario_gestion_id = :usuario_gestion_id,
-             usuario_gestion = :usuario_gestion,
-             fecha_ultima_gestion = :fecha_ultima_gestion
-         WHERE id = :id'
-    );
-    $stmt->execute([
-        ':estado' => $estado,
-        ':usuario_gestion_id' => $usuarioId,
-        ':usuario_gestion' => $username !== '' ? $username : null,
-        ':fecha_ultima_gestion' => $fechaGestion->format('Y-m-d H:i:s'),
-        ':id' => $pedidoId,
-    ]);
+    try {
+        $pdo->beginTransaction();
+
+        $stmt = $pdo->prepare(
+            'UPDATE pedidos
+             SET estado = :estado,
+                 usuario_gestion_id = :usuario_gestion_id,
+                 usuario_gestion = :usuario_gestion,
+                 fecha_ultima_gestion = :fecha_ultima_gestion
+             WHERE id = :id'
+        );
+        $stmt->execute([
+            ':estado' => $estado,
+            ':usuario_gestion_id' => $usuarioId,
+            ':usuario_gestion' => $username !== '' ? $username : null,
+            ':fecha_ultima_gestion' => $fechaGestion->format('Y-m-d H:i:s'),
+            ':id' => $pedidoId,
+        ]);
+
+        if ($estadoAnterior !== $estado) {
+            $codigoPedido = trim((string) ($pedido['codigo_pedido'] ?? ''));
+
+            registrarEventoPedido($pdo, $pedidoId, [
+                'tipo_evento' => PEDIDO_EVENTO_CAMBIO_ESTADO,
+                'estado_anterior' => $estadoAnterior,
+                'estado_nuevo' => $estado,
+                'usuario_id' => $usuarioId,
+                'usuario' => $username,
+                'descripcion' => sprintf(
+                    'Estado cambiado de %s a %s por %s.',
+                    strtolower(etiquetaEstadoPedido($estadoAnterior)),
+                    strtolower(etiquetaEstadoPedido($estado)),
+                    $username !== '' ? $username : 'sistema'
+                ),
+                'metadata' => [
+                    'codigo_pedido' => $codigoPedido,
+                ],
+                'fecha_evento' => $fechaGestion,
+            ]);
+
+            registrarActividadSistema($pdo, [
+                'usuario_id' => $usuarioId,
+                'usuario' => $username,
+                'tipo_evento' => ACTIVIDAD_TIPO_PEDIDO_ESTADO,
+                'entidad' => 'pedido',
+                'entidad_id' => $pedidoId,
+                'entidad_codigo' => $codigoPedido !== '' ? $codigoPedido : null,
+                'descripcion' => sprintf(
+                    'Cambio de estado de pedido %s a %s',
+                    $codigoPedido !== '' ? $codigoPedido : '#' . $pedidoId,
+                    strtolower(etiquetaEstadoPedido($estado))
+                ),
+                'metadata' => [
+                    'estado_anterior' => $estadoAnterior,
+                    'estado_nuevo' => $estado,
+                ],
+                'fecha_evento' => $fechaGestion,
+            ]);
+        }
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        if ($e instanceof RuntimeException) {
+            throw $e;
+        }
+
+        throw new RuntimeException('No se ha podido actualizar el estado del pedido.', 0, $e);
+    }
 }
 
 function configuracionEmailPedidos(): array
