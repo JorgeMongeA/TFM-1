@@ -22,7 +22,7 @@ return [
 
     // Email opcional para avisar de nuevas cuentas pendientes de aprobacion.
     'user_request_email_enabled' => false,
-    'user_request_email_to' => 'administracion@maximosl.com',
+    'user_request_email_to' => 'almacen@maximosl.com',
     'user_request_email_from' => '',
 
     // Email opcional para recuperacion de contrasena.

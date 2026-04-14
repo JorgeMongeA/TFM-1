@@ -19,6 +19,7 @@ $usuarios = [];
 $roles = [];
 $error = '';
 $mensaje = '';
+$solicitudesPendientes = 0;
 $flash = $_SESSION['flash_usuarios'] ?? null;
 unset($_SESSION['flash_usuarios']);
 
@@ -29,6 +30,7 @@ if (is_array($flash)) {
 try {
     $pdo = conectar();
     $roles = rolesAsignablesUsuarios($pdo);
+    $solicitudesPendientes = contarUsuariosPendientes($pdo);
 
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $accion = trim((string) ($_POST['accion'] ?? ''));
@@ -71,6 +73,10 @@ renderAppLayoutStart(
     <?php if ($error !== ''): ?>
         <div class="alert alert-danger"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div>
     <?php endif; ?>
+
+    <div class="alert alert-info">
+        Las solicitudes de alta pendientes llegan a esta pantalla y se gestionan aqui por almacen. Pendientes actuales: <?= htmlspecialchars((string) $solicitudesPendientes, ENT_QUOTES, 'UTF-8') ?>.
+    </div>
 
     <div class="card border-0 shadow-sm mb-4">
         <div class="card-body">
@@ -151,7 +157,7 @@ renderAppLayoutStart(
                                                 <input type="hidden" name="return_query" value="<?= htmlspecialchars((string) ($_SERVER['QUERY_STRING'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
                                                 <select class="form-select form-select-sm" name="rol_id">
                                                     <?php foreach ($roles as $rol): ?>
-                                                        <option value="<?= htmlspecialchars((string) ($rol['id'] ?? 0), ENT_QUOTES, 'UTF-8') ?>"<?= (int) ($usuario['rol_id'] ?? 0) === (int) ($rol['id'] ?? 0) ? ' selected' : '' ?>>
+                                                        <option value="<?= htmlspecialchars((string) ($rol['id'] ?? 0), ENT_QUOTES, 'UTF-8') ?>"<?= (int) ($usuario['rol_id_asignable'] ?? 0) === (int) ($rol['id'] ?? 0) ? ' selected' : '' ?>>
                                                             <?= htmlspecialchars(etiquetaRolUsuario(normalizarRolAplicacion((string) ($rol['nombre'] ?? ''))), ENT_QUOTES, 'UTF-8') ?>
                                                         </option>
                                                     <?php endforeach; ?>
@@ -165,7 +171,7 @@ renderAppLayoutStart(
                                                 <input type="hidden" name="return_query" value="<?= htmlspecialchars((string) ($_SERVER['QUERY_STRING'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
                                                 <select class="form-select form-select-sm" name="rol_id">
                                                     <?php foreach ($roles as $rol): ?>
-                                                        <option value="<?= htmlspecialchars((string) ($rol['id'] ?? 0), ENT_QUOTES, 'UTF-8') ?>"<?= (int) ($usuario['rol_id'] ?? 0) === (int) ($rol['id'] ?? 0) ? ' selected' : '' ?>>
+                                                        <option value="<?= htmlspecialchars((string) ($rol['id'] ?? 0), ENT_QUOTES, 'UTF-8') ?>"<?= (int) ($usuario['rol_id_asignable'] ?? 0) === (int) ($rol['id'] ?? 0) ? ' selected' : '' ?>>
                                                             <?= htmlspecialchars(etiquetaRolUsuario(normalizarRolAplicacion((string) ($rol['nombre'] ?? ''))), ENT_QUOTES, 'UTF-8') ?>
                                                         </option>
                                                     <?php endforeach; ?>

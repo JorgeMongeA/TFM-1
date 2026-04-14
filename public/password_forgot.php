@@ -46,7 +46,7 @@ try {
         <section class="auth-card" style="max-width: 520px;">
             <p class="eyebrow">Recuperacion</p>
             <h1>Recuperar contrasena</h1>
-            <p class="subtitulo">Introduce tu usuario o email. Si la cuenta existe y esta operativa, recibiras un enlace temporal para restablecerla.</p>
+            <p class="subtitulo">Introduce tu usuario o email. Solo las cuentas activas con email asociado y operativo pueden recibir el enlace temporal de recuperacion.</p>
 
             <?php if ($error !== ''): ?>
                 <p class="error"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></p>

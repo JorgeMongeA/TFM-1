@@ -123,14 +123,27 @@ function registrarEventoPedido(PDO $pdo, int $pedidoId, array $evento): void
 
 function obtenerUltimaActividad(PDO $pdo, int $limit = 8): array
 {
-    $limit = max(1, min(10, $limit));
-    $stmt = $pdo->prepare(
-        'SELECT id, usuario_id, usuario, tipo_evento, entidad, entidad_id, entidad_codigo, descripcion, metadata_json, fecha_evento
-         FROM actividad_sistema
-         ORDER BY fecha_evento DESC, id DESC
-         LIMIT ' . $limit
-    );
-    $stmt->execute();
+    $limit = max(1, min(100, $limit));
+    $tiposOcultos = tiposActividadOcultaEnDashboard();
+    $sql = 'SELECT id, usuario_id, usuario, tipo_evento, entidad, entidad_id, entidad_codigo, descripcion, metadata_json, fecha_evento
+            FROM actividad_sistema';
+    $params = [];
+
+    if ($tiposOcultos !== []) {
+        $placeholders = [];
+        foreach ($tiposOcultos as $indice => $tipoOculto) {
+            $placeholder = ':tipo_oculto_' . $indice;
+            $placeholders[] = $placeholder;
+            $params[$placeholder] = $tipoOculto;
+        }
+
+        $sql .= ' WHERE tipo_evento NOT IN (' . implode(', ', $placeholders) . ')';
+    }
+
+    $sql .= ' ORDER BY fecha_evento DESC, id DESC LIMIT ' . $limit;
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
 
     $actividades = $stmt->fetchAll();
 
@@ -144,6 +157,14 @@ function obtenerUltimaActividad(PDO $pdo, int $limit = 8): array
     unset($actividad);
 
     return $actividades;
+}
+
+function tiposActividadOcultaEnDashboard(): array
+{
+    return [
+        'password_reset_audit',
+        'campana_confirmacion_validada',
+    ];
 }
 
 function obtenerTimelinePedido(PDO $pdo, int $pedidoId): array
@@ -184,6 +205,7 @@ function actividadBadge(string $tipoEvento): string
         ACTIVIDAD_TIPO_INVENTARIO_PDF => 'text-bg-secondary',
         'usuario_creado', 'usuario_aprobado', 'usuario_activado', 'usuario_desactivado', 'usuario_rol' => 'text-bg-primary',
         'password_reset_requested', 'password_reset_completed' => 'text-bg-secondary',
+        'campana_confirmacion_validada', 'password_reset_audit' => 'text-bg-dark',
         default => 'text-bg-secondary',
     };
 }
@@ -199,6 +221,8 @@ function actividadEtiqueta(string $tipoEvento): string
         ACTIVIDAD_TIPO_INVENTARIO_PDF => 'PDF',
         'usuario_creado', 'usuario_aprobado', 'usuario_activado', 'usuario_desactivado', 'usuario_rol' => 'Usuario',
         'password_reset_requested', 'password_reset_completed' => 'Acceso',
+        'campana_confirmacion_validada' => 'Campana',
+        'password_reset_audit' => 'Auditoria',
         default => 'Sistema',
     };
 }
@@ -214,6 +238,8 @@ function actividadIcono(string $tipoEvento): string
         ACTIVIDAD_TIPO_INVENTARIO_PDF => 'PDF',
         'usuario_creado', 'usuario_aprobado', 'usuario_activado', 'usuario_desactivado', 'usuario_rol' => 'U',
         'password_reset_requested', 'password_reset_completed' => 'R',
+        'campana_confirmacion_validada' => 'C',
+        'password_reset_audit' => 'A',
         default => '•',
     };
 }

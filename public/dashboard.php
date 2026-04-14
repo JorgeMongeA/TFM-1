@@ -6,6 +6,7 @@ require_once dirname(__DIR__) . '/app/auth.php';
 require_once dirname(__DIR__) . '/app/conexion.php';
 require_once dirname(__DIR__) . '/app/actividad.php';
 require_once dirname(__DIR__) . '/app/layout.php';
+require_once dirname(__DIR__) . '/app/usuarios.php';
 
 require_login();
 requierePermiso(PERMISO_DASHBOARD);
@@ -15,6 +16,7 @@ $rol = obtenerRolUsuarioActual();
 $accesos = [];
 $ultimaActividad = [];
 $errorActividad = '';
+$solicitudesPendientes = 0;
 
 if (puedeVerInventario()) {
     $accesos[] = [
@@ -56,7 +58,10 @@ if (puedeAccederCentros()) {
 
 try {
     $pdo = conectar();
-    $ultimaActividad = obtenerUltimaActividad($pdo, 8);
+    $ultimaActividad = obtenerUltimaActividad($pdo, 20);
+    if (puedeGestionarUsuarios()) {
+        $solicitudesPendientes = contarUsuariosPendientes($pdo);
+    }
 } catch (Throwable $e) {
     $errorActividad = 'No se ha podido cargar la actividad reciente.';
 }
@@ -88,6 +93,14 @@ renderAppLayoutStart(
                     <p class="eyebrow">Acciones rapidas</p>
                     <div class="d-grid gap-2">
                         <a class="btn btn-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/cambiar_password.php">Cambiar contrasena</a>
+                        <?php if (puedeGestionarUsuarios()): ?>
+                            <a class="btn btn-outline-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/usuarios.php?estado=pendiente">
+                                Solicitudes pendientes<?= $solicitudesPendientes > 0 ? ' (' . htmlspecialchars((string) $solicitudesPendientes, ENT_QUOTES, 'UTF-8') . ')' : '' ?>
+                            </a>
+                        <?php endif; ?>
+                        <?php if (puedePrepararCampanas()): ?>
+                            <a class="btn btn-outline-dark" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/campana_nueva.php">Iniciar nueva campana</a>
+                        <?php endif; ?>
                         <a class="btn btn-outline-danger" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/logout.php">Cerrar sesion</a>
                     </div>
                 </div>
@@ -116,7 +129,7 @@ renderAppLayoutStart(
                             <p class="eyebrow mb-1">Actividad reciente</p>
                             <h2 class="section-title">Ultima actividad</h2>
                         </div>
-                        <p class="mb-0 text-body-secondary">Ultimos movimientos relevantes del sistema, ordenados de mas reciente a mas antiguo.</p>
+                        <p class="mb-0 text-body-secondary">Ultimos 20 movimientos relevantes del sistema, ordenados de mas reciente a mas antiguo.</p>
                     </div>
 
                     <?php if ($errorActividad !== ''): ?>

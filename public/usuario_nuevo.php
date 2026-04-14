@@ -15,7 +15,6 @@ if (isset($_SESSION['user_id'])) {
 
 $error = '';
 $mensaje = '';
-$resultadoEmail = null;
 $datos = [
     'username' => '',
     'email' => '',
@@ -32,12 +31,8 @@ try {
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $datos = leerFormularioUsuarioDesdeRequest($_POST);
         $usuario = crearSolicitudUsuario($pdo, $datos);
-        $resultadoEmail = notificarSolicitudUsuarioPorEmail($usuario);
+        notificarSolicitudUsuarioPorEmail($usuario);
         $mensaje = 'Tu solicitud de acceso se ha registrado correctamente. Queda pendiente de aprobacion por almacen.';
-
-        if (is_array($resultadoEmail) && ($resultadoEmail['enabled'] ?? false) === true) {
-            $mensaje .= ' ' . (string) ($resultadoEmail['message'] ?? '');
-        }
 
         $datos = [
             'username' => '',
@@ -65,7 +60,7 @@ try {
         <section class="auth-card" style="max-width: 560px;">
             <p class="eyebrow">Nueva cuenta</p>
             <h1>Solicitar acceso</h1>
-            <p class="subtitulo">Tu cuenta quedara pendiente de aprobacion por el equipo de almacen antes de poder iniciar sesion.</p>
+            <p class="subtitulo">Tu cuenta quedara pendiente de aprobacion por almacen. Si el entorno de correo esta operativo, el sistema enviara ademas un aviso a almacen@maximosl.com.</p>
 
             <?php if ($error !== ''): ?>
                 <p class="error"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></p>

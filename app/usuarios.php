@@ -7,6 +7,16 @@ require_once __DIR__ . '/actividad.php';
 const USUARIO_ESTADO_PENDIENTE = 'pendiente';
 const USUARIO_ESTADO_ACTIVO = 'activo';
 const USUARIO_ESTADO_DESACTIVADO = 'desactivado';
+const USUARIO_CIRCUITO_SOLICITUDES_USERNAME = 'almacen';
+const USUARIO_CIRCUITO_SOLICITUDES_EMAIL = 'almacen@maximosl.com';
+
+function rolesFuncionalesUsuarios(): array
+{
+    return [
+        ROL_ALMACEN => 'Almacen',
+        ROL_EDELVIVES => 'Edelvives',
+    ];
+}
 
 function usuariosSoportanGestion(PDO $pdo): bool
 {
@@ -63,12 +73,100 @@ function leerFormularioUsuarioDesdeRequest(array $source): array
 
 function rolesAsignablesUsuarios(PDO $pdo): array
 {
-    $stmt = $pdo->query('SELECT id, nombre FROM roles ORDER BY nombre ASC');
+    $stmt = $pdo->query(
+        "SELECT id, nombre
+         FROM roles
+         WHERE nombre IN ('almacen', 'edelvives')
+         ORDER BY FIELD(nombre, 'almacen', 'edelvives'), id ASC"
+    );
     $roles = $stmt->fetchAll();
 
-    return array_values(array_filter($roles, static function (array $rol): bool {
-        return normalizarRolAplicacion((string) ($rol['nombre'] ?? '')) !== '';
-    }));
+    $esperados = array_keys(rolesFuncionalesUsuarios());
+    $disponibles = array_map(
+        static fn(array $rol): string => trim((string) ($rol['nombre'] ?? '')),
+        $roles
+    );
+    $faltantes = array_values(array_diff($esperados, $disponibles));
+
+    if ($faltantes !== []) {
+        throw new RuntimeException(
+            'Faltan roles funcionales canonicos en la base de datos: ' . implode(', ', $faltantes) . '.'
+        );
+    }
+
+    return $roles;
+}
+
+function rolIdAsignableUsuarios(PDO $pdo, int $rolId): bool
+{
+    if ($rolId <= 0) {
+        return false;
+    }
+
+    foreach (rolesAsignablesUsuarios($pdo) as $rol) {
+        if ((int) ($rol['id'] ?? 0) === $rolId) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function rolesAsignablesPorNombre(PDO $pdo): array
+{
+    $rolesPorNombre = [];
+
+    foreach (rolesAsignablesUsuarios($pdo) as $rol) {
+        $nombre = trim((string) ($rol['nombre'] ?? ''));
+        if ($nombre === '') {
+            continue;
+        }
+
+        $rolesPorNombre[$nombre] = $rol;
+    }
+
+    return $rolesPorNombre;
+}
+
+function rolCanonicoPorIdUsuario(PDO $pdo, int $rolId): string
+{
+    $rol = obtenerRolPorId($pdo, $rolId);
+    return normalizarRolAplicacion((string) ($rol['nombre'] ?? ''));
+}
+
+function idsRolesCompatibles(PDO $pdo, string $rolCanonico): array
+{
+    $rolCanonico = normalizarRolAplicacion($rolCanonico);
+    if ($rolCanonico === '') {
+        return [];
+    }
+
+    $stmt = $pdo->query('SELECT id, nombre FROM roles ORDER BY id ASC');
+    $roles = $stmt->fetchAll();
+    $ids = [];
+
+    foreach ($roles as $rol) {
+        if (normalizarRolAplicacion((string) ($rol['nombre'] ?? '')) !== $rolCanonico) {
+            continue;
+        }
+
+        $rolId = (int) ($rol['id'] ?? 0);
+        if ($rolId > 0) {
+            $ids[] = $rolId;
+        }
+    }
+
+    return array_values(array_unique($ids));
+}
+
+function contarUsuariosPendientes(PDO $pdo): int
+{
+    if (!usuariosSoportanGestion($pdo)) {
+        return 0;
+    }
+
+    $stmt = $pdo->query('SELECT COUNT(*) FROM usuarios WHERE aprobado = 0');
+    return (int) $stmt->fetchColumn();
 }
 
 function listarUsuariosGestion(PDO $pdo, array $filtros = []): array
@@ -103,8 +201,21 @@ function listarUsuariosGestion(PDO $pdo, array $filtros = []): array
 
     $rolId = (int) ($filtros['rol_id'] ?? 0);
     if ($rolId > 0) {
-        $sql .= ' AND u.rol_id = :rol_id';
-        $params[':rol_id'] = $rolId;
+        $rolCanonicoFiltro = rolCanonicoPorIdUsuario($pdo, $rolId);
+        $rolesCompatibles = $rolCanonicoFiltro !== '' ? idsRolesCompatibles($pdo, $rolCanonicoFiltro) : [$rolId];
+
+        if ($rolesCompatibles === []) {
+            $rolesCompatibles = [$rolId];
+        }
+
+        $placeholdersRol = [];
+        foreach ($rolesCompatibles as $indice => $rolCompatibleId) {
+            $placeholder = ':rol_id_' . $indice;
+            $placeholdersRol[] = $placeholder;
+            $params[$placeholder] = $rolCompatibleId;
+        }
+
+        $sql .= ' AND u.rol_id IN (' . implode(', ', $placeholdersRol) . ')';
     }
 
     $texto = trim((string) ($filtros['q'] ?? ''));
@@ -119,10 +230,14 @@ function listarUsuariosGestion(PDO $pdo, array $filtros = []): array
     $stmt->execute($params);
     $usuarios = $stmt->fetchAll();
 
+    $rolesCanonicos = rolesAsignablesPorNombre($pdo);
+
     foreach ($usuarios as &$usuario) {
+        $rolCanonico = normalizarRolAplicacion((string) ($usuario['rol_nombre'] ?? ''));
         $usuario['estado_gestion'] = estadoGestionUsuario($usuario);
         $usuario['estado_badge'] = claseEstadoGestionUsuario((string) $usuario['estado_gestion']);
-        $usuario['rol_label'] = etiquetaRolUsuario(normalizarRolAplicacion((string) ($usuario['rol_nombre'] ?? '')));
+        $usuario['rol_label'] = etiquetaRolUsuario($rolCanonico);
+        $usuario['rol_id_asignable'] = (int) ($rolesCanonicos[$rolCanonico]['id'] ?? ($usuario['rol_id'] ?? 0));
     }
     unset($usuario);
 
@@ -192,7 +307,7 @@ function validarDatosNuevoUsuario(PDO $pdo, array $datos): array
         $errores[] = 'La contrasena y su confirmacion no coinciden.';
     }
 
-    if ($rolId <= 0 || obtenerRolPorId($pdo, $rolId) === null) {
+    if (!rolIdAsignableUsuarios($pdo, $rolId)) {
         $errores[] = 'Selecciona un rol inicial valido.';
     }
 
@@ -272,6 +387,9 @@ function crearSolicitudUsuario(PDO $pdo, array $datos, ?array $solicitante = nul
         'metadata' => [
             'email' => $email,
             'rol_solicitado' => (string) ($rol['nombre'] ?? ''),
+            'origen' => 'solicitud_publica',
+            'circuito_gestion_username' => USUARIO_CIRCUITO_SOLICITUDES_USERNAME,
+            'circuito_gestion_email' => USUARIO_CIRCUITO_SOLICITUDES_EMAIL,
         ],
         'fecha_evento' => $fecha,
     ]);
@@ -312,10 +430,10 @@ function aprobarUsuario(PDO $pdo, int $usuarioId, int $rolId, array $admin): voi
         throw new RuntimeException('El usuario indicado no existe.');
     }
 
-    $rol = obtenerRolPorId($pdo, $rolId);
-    if ($rol === null) {
+    if (!rolIdAsignableUsuarios($pdo, $rolId)) {
         throw new RuntimeException('El rol seleccionado no es valido.');
     }
+    $rol = obtenerRolPorId($pdo, $rolId);
 
     $adminId = isset($admin['user_id']) ? (int) $admin['user_id'] : null;
     $adminUsername = trim((string) ($admin['username'] ?? ''));
@@ -365,10 +483,10 @@ function actualizarEstadoYRolUsuario(PDO $pdo, int $usuarioId, int $rolId, bool 
         throw new RuntimeException('El usuario indicado no existe.');
     }
 
-    $rol = obtenerRolPorId($pdo, $rolId);
-    if ($rol === null) {
+    if (!rolIdAsignableUsuarios($pdo, $rolId)) {
         throw new RuntimeException('El rol seleccionado no es valido.');
     }
+    $rol = obtenerRolPorId($pdo, $rolId);
 
     if ((int) $usuario['id'] === (int) ($admin['user_id'] ?? 0) && $activo === false) {
         throw new RuntimeException('No puedes desactivar tu propia cuenta desde este panel.');
@@ -457,18 +575,18 @@ function obtenerRolPorId(PDO $pdo, int $rolId): ?array
 
 function configuracionEmailUsuarios(): array
 {
-    $configFile = dirname(__DIR__) . '/config/config.php';
-    if (!is_file($configFile)) {
+    try {
+        $config = cargarConfiguracion();
+    } catch (Throwable $e) {
         return ['enabled' => false];
     }
 
-    $config = require $configFile;
     if (!is_array($config)) {
         return ['enabled' => false];
     }
 
     $enabled = (bool) ($config['user_request_email_enabled'] ?? false);
-    $to = trim((string) ($config['user_request_email_to'] ?? 'administracion@maximosl.com'));
+    $to = trim((string) ($config['user_request_email_to'] ?? USUARIO_CIRCUITO_SOLICITUDES_EMAIL));
 
     return [
         'enabled' => $enabled && $to !== '',
@@ -501,7 +619,8 @@ function notificarSolicitudUsuarioPorEmail(array $usuario): array
         'Se ha creado una nueva cuenta pendiente de aprobacion.',
         'Usuario: ' . (string) ($usuario['username'] ?? ''),
         'Email: ' . (string) ($usuario['email'] ?? ''),
-        'Rol solicitado: ' . (string) ($usuario['rol_nombre'] ?? ''),
+        'Rol solicitado: ' . etiquetaRolUsuario(normalizarRolAplicacion((string) ($usuario['rol_nombre'] ?? ''))),
+        'Gestion de solicitudes: ' . rtrim(BASE_URL, '/') . '/usuarios.php?estado=pendiente',
     ]);
 
     $headers = [];
@@ -517,7 +636,7 @@ function notificarSolicitudUsuarioPorEmail(array $usuario): array
         'enabled' => true,
         'sent' => $sent,
         'message' => $sent
-            ? 'Aviso enviado a administracion.'
+            ? 'Aviso enviado al circuito de almacen.'
             : 'No se ha podido enviar el aviso por email.',
     ];
 }

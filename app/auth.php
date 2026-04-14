@@ -20,6 +20,7 @@ const PERMISO_CENTROS_EDICION = 'centros_edicion';
 const PERMISO_PEDIDOS = 'pedidos';
 const PERMISO_CAMBIAR_PASSWORD = 'cambiar_password';
 const PERMISO_USUARIOS = 'usuarios';
+const PERMISO_CAMPANAS = 'campanas';
 
 function aliasesRolesAplicacion(): array
 {
@@ -63,6 +64,7 @@ function permisosPorRol(): array
             PERMISO_PEDIDOS,
             PERMISO_CAMBIAR_PASSWORD,
             PERMISO_USUARIOS,
+            PERMISO_CAMPANAS,
         ],
         ROL_EDELVIVES => [
             PERMISO_DASHBOARD,
@@ -296,6 +298,11 @@ function puedeCambiarPassword(): bool
 function puedeGestionarUsuarios(): bool
 {
     return usuarioTienePermiso(PERMISO_USUARIOS) && usuarioEsAlmacen();
+}
+
+function puedePrepararCampanas(): bool
+{
+    return usuarioTienePermiso(PERMISO_CAMPANAS) && usuarioEsAlmacen();
 }
 
 function urlInicioSegunPermisos(): string
