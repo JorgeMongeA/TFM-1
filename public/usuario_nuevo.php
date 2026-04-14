@@ -30,6 +30,11 @@ try {
 
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $datos = leerFormularioUsuarioDesdeRequest($_POST);
+        error_log('[USUARIOS] POST usuario_nuevo.php => ' . json_encode([
+            'username' => $datos['username'],
+            'email' => $datos['email'],
+            'rol_id' => $datos['rol_id'],
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         crearSolicitudUsuario($pdo, $datos);
         $mensaje = 'Tu solicitud de acceso se ha registrado correctamente. Queda pendiente de aprobacion por almacen.';
 
@@ -42,6 +47,7 @@ try {
         ];
     }
 } catch (Throwable $e) {
+    error_log('[USUARIOS] usuario_nuevo.php error => ' . $e->getMessage());
     $mensajeError = trim($e->getMessage());
     $error = $mensajeError !== '' ? $mensajeError : 'No se ha podido registrar la solicitud de usuario.';
 }
