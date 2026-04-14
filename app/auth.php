@@ -118,6 +118,9 @@ function login(string $username, string $password): bool
     $columnasExtras = '';
     if (usuariosSoportanControlAcceso($pdo)) {
         $columnasExtras = ', u.activo, u.aprobado';
+        if (usuariosSoportanRechazo($pdo)) {
+            $columnasExtras .= ', u.rechazado';
+        }
     }
 
     $stmt = $pdo->prepare(
@@ -137,6 +140,10 @@ function login(string $username, string $password): bool
     $passwordPersistida = (string) ($user['password'] ?? '');
     if (!validarPasswordLogin($password, $passwordPersistida)) {
         return false;
+    }
+
+    if ((int) ($user['rechazado'] ?? 0) === 1) {
+        throw new RuntimeException('Tu cuenta ha sido rechazada.');
     }
 
     if ((int) ($user['aprobado'] ?? 1) !== 1) {
@@ -429,6 +436,30 @@ function usuariosSoportanControlAcceso(PDO $pdo): bool
         }
 
         $cache = in_array('activo', $columnas, true) && in_array('aprobado', $columnas, true);
+        return $cache;
+    } catch (Throwable $e) {
+        $cache = false;
+        return $cache;
+    }
+}
+
+function usuariosSoportanRechazo(PDO $pdo): bool
+{
+    static $cache = null;
+
+    if (is_bool($cache)) {
+        return $cache;
+    }
+
+    try {
+        $stmt = $pdo->query('SHOW COLUMNS FROM usuarios');
+        $columnas = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+        if (!is_array($columnas)) {
+            $cache = false;
+            return $cache;
+        }
+
+        $cache = in_array('rechazado', $columnas, true);
         return $cache;
     } catch (Throwable $e) {
         $cache = false;

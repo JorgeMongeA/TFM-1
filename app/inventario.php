@@ -388,24 +388,16 @@ function obtenerBloqueosAnulacionInventario(PDO $pdo, int $inventarioId): array
     return $bloqueos;
 }
 
-function anularEntradaInventario(PDO $pdo, int $inventarioId, array $usuario, string $motivo): array
+function anularEntradaInventario(PDO $pdo, int $inventarioId, array $usuario, string $motivo = ''): array
 {
     $motivo = trim($motivo);
     if ($inventarioId <= 0) {
         throw new RuntimeException('La entrada indicada no es valida.');
     }
 
-    if (!inventarioSoportaAnulacion($pdo)) {
-        throw new RuntimeException('La anulacion de stock no esta disponible hasta aplicar la migracion de base de datos en produccion.');
-    }
-
-    if ($motivo === '' || strlen($motivo) < 8) {
-        throw new RuntimeException('Indica un motivo de anulacion claro para dejar trazabilidad.');
-    }
-
     $usuarioId = isset($usuario['user_id']) && (int) $usuario['user_id'] > 0 ? (int) $usuario['user_id'] : null;
     $username = trim((string) ($usuario['username'] ?? ''));
-    $fechaAnulacion = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
+    $fechaOperacion = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
 
     try {
         $pdo->beginTransaction();
@@ -421,40 +413,24 @@ function anularEntradaInventario(PDO $pdo, int $inventarioId, array $usuario, st
         }
 
         if ($estado === INVENTARIO_ESTADO_ANULADO) {
-            throw new RuntimeException('La entrada ya estaba anulada anteriormente.');
+            throw new RuntimeException('La entrada ya no esta disponible.');
         }
 
         if ($estado !== INVENTARIO_ESTADO_ACTIVO) {
-            throw new RuntimeException('La entrada no esta disponible para anulacion.');
+            throw new RuntimeException('La entrada no esta disponible para borrado.');
         }
 
-        $bloqueos = obtenerBloqueosAnulacionInventario($pdo, $inventarioId);
-        if ($bloqueos !== []) {
-            throw new RuntimeException(implode(' ', $bloqueos));
-        }
+        $stmtLineasPedido = $pdo->prepare('DELETE FROM pedido_lineas WHERE inventario_id = :inventario_id');
+        $stmtLineasPedido->execute([':inventario_id' => $inventarioId]);
 
-        $stmt = $pdo->prepare(
-            'UPDATE inventario
-             SET estado = :estado,
-                 usuario_anulacion_id = :usuario_anulacion_id,
-                 usuario_anulacion = :usuario_anulacion,
-                 fecha_anulacion = :fecha_anulacion,
-                 motivo_anulacion = :motivo_anulacion
-             WHERE id = :id
-               AND estado = :estado_actual'
-        );
-        $stmt->execute([
-            ':estado' => INVENTARIO_ESTADO_ANULADO,
-            ':usuario_anulacion_id' => $usuarioId,
-            ':usuario_anulacion' => $username !== '' ? $username : null,
-            ':fecha_anulacion' => $fechaAnulacion->format('Y-m-d H:i:s'),
-            ':motivo_anulacion' => $motivo,
-            ':id' => $inventarioId,
-            ':estado_actual' => INVENTARIO_ESTADO_ACTIVO,
-        ]);
+        $stmtLineasAlbaran = $pdo->prepare('DELETE FROM albaranes_salida_lineas WHERE inventario_id = :inventario_id');
+        $stmtLineasAlbaran->execute([':inventario_id' => $inventarioId]);
+
+        $stmt = $pdo->prepare('DELETE FROM inventario WHERE id = :id LIMIT 1');
+        $stmt->execute([':id' => $inventarioId]);
 
         if ($stmt->rowCount() !== 1) {
-            throw new RuntimeException('No se ha podido anular la entrada en este momento.');
+            throw new RuntimeException('No se ha podido borrar la entrada en este momento.');
         }
 
         registrarActividadSistema($pdo, [
@@ -464,23 +440,17 @@ function anularEntradaInventario(PDO $pdo, int $inventarioId, array $usuario, st
             'entidad' => 'inventario',
             'entidad_id' => $inventarioId,
             'entidad_codigo' => (string) $inventarioId,
-            'descripcion' => 'Anulacion de entrada de inventario ID ' . $inventarioId,
+            'descripcion' => 'Borrado de entrada de inventario ID ' . $inventarioId,
             'metadata' => [
                 'motivo' => $motivo,
                 'editorial' => (string) ($inventario['editorial'] ?? ''),
                 'colegio' => (string) ($inventario['colegio'] ?? ''),
                 'codigo_centro' => (string) ($inventario['codigo_centro'] ?? ''),
             ],
-            'fecha_evento' => $fechaAnulacion,
+            'fecha_evento' => $fechaOperacion,
         ]);
 
         $pdo->commit();
-
-        $inventario['estado'] = INVENTARIO_ESTADO_ANULADO;
-        $inventario['usuario_anulacion_id'] = $usuarioId;
-        $inventario['usuario_anulacion'] = $username;
-        $inventario['fecha_anulacion'] = $fechaAnulacion->format('Y-m-d H:i:s');
-        $inventario['motivo_anulacion'] = $motivo;
 
         return $inventario;
     } catch (Throwable $e) {
@@ -492,7 +462,7 @@ function anularEntradaInventario(PDO $pdo, int $inventarioId, array $usuario, st
             throw $e;
         }
 
-        throw new RuntimeException('No se ha podido anular la entrada de inventario.', 0, $e);
+        throw new RuntimeException('No se ha podido borrar la entrada de inventario.', 0, $e);
     }
 }
 

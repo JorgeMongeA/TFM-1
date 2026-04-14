@@ -41,6 +41,9 @@ try {
         if ($accion === 'aprobar') {
             aprobarUsuario($pdo, $usuarioId, $rolId, $admin);
             $_SESSION['flash_usuarios'] = ['mensaje' => 'Usuario aprobado y activado correctamente.'];
+        } elseif ($accion === 'rechazar') {
+            rechazarUsuario($pdo, $usuarioId, $admin);
+            $_SESSION['flash_usuarios'] = ['mensaje' => 'Solicitud rechazada correctamente.'];
         } elseif ($accion === 'actualizar') {
             $activo = (string) ($_POST['activo'] ?? '0') === '1';
             actualizarEstadoYRolUsuario($pdo, $usuarioId, $rolId, $activo, $admin);
@@ -93,6 +96,7 @@ renderAppLayoutStart(
                             <option value="<?= htmlspecialchars(USUARIO_ESTADO_PENDIENTE, ENT_QUOTES, 'UTF-8') ?>"<?= $filtros['estado'] === USUARIO_ESTADO_PENDIENTE ? ' selected' : '' ?>>Pendiente</option>
                             <option value="<?= htmlspecialchars(USUARIO_ESTADO_ACTIVO, ENT_QUOTES, 'UTF-8') ?>"<?= $filtros['estado'] === USUARIO_ESTADO_ACTIVO ? ' selected' : '' ?>>Activo</option>
                             <option value="<?= htmlspecialchars(USUARIO_ESTADO_DESACTIVADO, ENT_QUOTES, 'UTF-8') ?>"<?= $filtros['estado'] === USUARIO_ESTADO_DESACTIVADO ? ' selected' : '' ?>>Desactivado</option>
+                            <option value="<?= htmlspecialchars(USUARIO_ESTADO_RECHAZADO, ENT_QUOTES, 'UTF-8') ?>"<?= $filtros['estado'] === USUARIO_ESTADO_RECHAZADO ? ' selected' : '' ?>>Rechazado</option>
                         </select>
                     </div>
                     <div class="col-12 col-md-3">
@@ -163,6 +167,12 @@ renderAppLayoutStart(
                                                     <?php endforeach; ?>
                                                 </select>
                                                 <button class="btn btn-sm btn-primary" type="submit">Aprobar y activar</button>
+                                            </form>
+                                            <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/usuarios.php" class="mt-2">
+                                                <input type="hidden" name="accion" value="rechazar">
+                                                <input type="hidden" name="usuario_id" value="<?= htmlspecialchars((string) ($usuario['id'] ?? 0), ENT_QUOTES, 'UTF-8') ?>">
+                                                <input type="hidden" name="return_query" value="<?= htmlspecialchars((string) ($_SERVER['QUERY_STRING'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
+                                                <button class="btn btn-sm btn-outline-danger w-100" type="submit">Rechazar</button>
                                             </form>
                                         <?php else: ?>
                                             <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/usuarios.php" class="d-flex flex-column gap-2">

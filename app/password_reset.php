@@ -3,10 +3,11 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/actividad.php';
+require_once __DIR__ . '/notificaciones.php';
 require_once __DIR__ . '/usuarios.php';
 
 const PASSWORD_RESET_EXPIRACION_MINUTOS = 60;
-const PASSWORD_RESET_MENSAJE_NEUTRO = 'Si la cuenta existe, recibiras un correo para restablecer la contrasena.';
+const PASSWORD_RESET_MENSAJE_NEUTRO = 'Si el usuario existe, la solicitud se ha registrado correctamente.';
 
 function passwordResetSoportado(PDO $pdo): bool
 {
@@ -22,7 +23,7 @@ function passwordResetSoportado(PDO $pdo): bool
     }
 
     try {
-        $stmt = $pdo->query('SHOW TABLES LIKE \'password_resets\'');
+        $stmt = $pdo->query("SHOW TABLES LIKE 'password_resets'");
         $cache = $stmt->fetch() !== false;
         return $cache;
     } catch (Throwable $e) {
@@ -43,7 +44,7 @@ function buscarUsuarioRecuperacion(PDO $pdo, string $identificador): ?array
     }
 
     $stmt = $pdo->prepare(
-        'SELECT u.id, u.username, u.email, u.aprobado, u.activo
+        'SELECT u.id, u.username, u.email, u.aprobado, u.activo, u.rechazado
          FROM usuarios u
          WHERE u.username = :identificador
             OR u.email = :identificador
@@ -60,11 +61,6 @@ function crearSolicitudRecuperacionPassword(PDO $pdo, string $identificador): ar
     $respuestaNeutra = [
         'ok' => true,
         'mensaje' => PASSWORD_RESET_MENSAJE_NEUTRO,
-        'email' => [
-            'enabled' => false,
-            'sent' => false,
-            'message' => 'Recuperacion no disponible en este entorno.',
-        ],
     ];
 
     if (!passwordResetSoportado($pdo)) {
@@ -74,6 +70,11 @@ function crearSolicitudRecuperacionPassword(PDO $pdo, string $identificador): ar
     $usuario = buscarUsuarioRecuperacion($pdo, $identificador);
     if ($usuario === null) {
         registrarAuditoriaRecuperacionPassword($pdo, $identificador, 'usuario_no_encontrado');
+        return $respuestaNeutra;
+    }
+
+    if ((int) ($usuario['rechazado'] ?? 0) === 1) {
+        registrarAuditoriaRecuperacionPassword($pdo, $identificador, 'usuario_rechazado', $usuario);
         return $respuestaNeutra;
     }
 
@@ -87,40 +88,10 @@ function crearSolicitudRecuperacionPassword(PDO $pdo, string $identificador): ar
         return $respuestaNeutra;
     }
 
-    $email = trim((string) ($usuario['email'] ?? ''));
-    if (!emailUsuarioOperativo($email)) {
-        registrarAuditoriaRecuperacionPassword(
-            $pdo,
-            $identificador,
-            $email === '' ? 'usuario_sin_email' : 'usuario_con_email_invalido',
-            $usuario,
-            ['email' => $email]
-        );
-        return $respuestaNeutra;
-    }
-
-    $estadoEmail = estadoEnvioEmailPasswordReset();
-    if (($estadoEmail['ready'] ?? false) !== true) {
-        registrarAuditoriaRecuperacionPassword(
-            $pdo,
-            $identificador,
-            'entorno_email_no_disponible',
-            $usuario,
-            ['email' => $email, 'motivo' => (string) ($estadoEmail['message'] ?? '')]
-        );
-        $respuestaNeutra['email'] = [
-            'enabled' => (bool) ($estadoEmail['enabled'] ?? false),
-            'sent' => false,
-            'message' => (string) ($estadoEmail['message'] ?? 'Recuperacion no disponible en este entorno.'),
-        ];
-        return $respuestaNeutra;
-    }
-
     $tokenPlano = bin2hex(random_bytes(32));
     $tokenHash = hash('sha256', $tokenPlano);
     $fecha = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
     $expira = $fecha->modify('+' . PASSWORD_RESET_EXPIRACION_MINUTOS . ' minutes');
-    $resetId = 0;
 
     try {
         $pdo->beginTransaction();
@@ -147,12 +118,37 @@ function crearSolicitudRecuperacionPassword(PDO $pdo, string $identificador): ar
         );
         $stmtInsert->execute([
             ':usuario_id' => (int) $usuario['id'],
-            ':email' => $email,
+            ':email' => trim((string) ($usuario['email'] ?? '')),
             ':token_hash' => $tokenHash,
             ':expira_en' => $expira->format('Y-m-d H:i:s'),
             ':creado_en' => $fecha->format('Y-m-d H:i:s'),
         ]);
-        $resetId = (int) $pdo->lastInsertId();
+
+        registrarActividadSistema($pdo, [
+            'usuario_id' => (int) $usuario['id'],
+            'usuario' => (string) ($usuario['username'] ?? ''),
+            'tipo_evento' => 'password_reset_requested',
+            'entidad' => 'usuario',
+            'entidad_id' => (int) $usuario['id'],
+            'entidad_codigo' => (string) ($usuario['username'] ?? ''),
+            'descripcion' => 'Solicitud de recuperación de contraseña para usuario ' . (string) ($usuario['username'] ?? ''),
+            'metadata' => [
+                'expira_en' => $expira->format('Y-m-d H:i:s'),
+            ],
+            'fecha_evento' => $fecha,
+        ]);
+
+        try {
+            $stmtNotificacion = $pdo->prepare(
+                "INSERT INTO notificaciones (usuario_destino, tipo, mensaje, leida, fecha)
+                 VALUES ('almacen', 'reset_password', :mensaje, 0, NOW())"
+            );
+            $stmtNotificacion->execute([
+                ':mensaje' => construirMensajeNotificacionResetPassword($usuario, $tokenPlano, $expira),
+            ]);
+        } catch (Throwable $e) {
+            error_log('[PASSWORD_RESET] No se pudo crear notificacion para almacen: ' . $e->getMessage());
+        }
 
         $pdo->commit();
     } catch (Throwable $e) {
@@ -163,44 +159,17 @@ function crearSolicitudRecuperacionPassword(PDO $pdo, string $identificador): ar
         registrarAuditoriaRecuperacionPassword($pdo, $identificador, 'error_generando_token', $usuario, [
             'error' => $e->getMessage(),
         ]);
-        return $respuestaNeutra;
     }
 
-    $resultadoEmail = enviarEmailRecuperacionPassword($usuario, $tokenPlano, $expira);
-    if (($resultadoEmail['sent'] ?? false) !== true) {
-        invalidarResetPasswordPendiente($pdo, $resetId);
-        registrarAuditoriaRecuperacionPassword($pdo, $identificador, 'email_no_enviado', $usuario, [
-            'email' => $email,
-            'motivo' => (string) ($resultadoEmail['message'] ?? ''),
-        ]);
+    return $respuestaNeutra;
+}
 
-        return [
-            'ok' => true,
-            'mensaje' => PASSWORD_RESET_MENSAJE_NEUTRO,
-            'email' => $resultadoEmail,
-        ];
-    }
-
-    registrarActividadSistema($pdo, [
-        'usuario_id' => (int) $usuario['id'],
-        'usuario' => (string) ($usuario['username'] ?? ''),
-        'tipo_evento' => 'password_reset_requested',
-        'entidad' => 'usuario',
-        'entidad_id' => (int) $usuario['id'],
-        'entidad_codigo' => (string) ($usuario['username'] ?? ''),
-        'descripcion' => 'Solicitud de recuperacion de contrasena para usuario ' . (string) ($usuario['username'] ?? ''),
-        'metadata' => [
-            'email' => $email,
-            'expira_en' => $expira->format('Y-m-d H:i:s'),
-        ],
-        'fecha_evento' => $fecha,
-    ]);
-
-    return [
-        'ok' => true,
-        'mensaje' => PASSWORD_RESET_MENSAJE_NEUTRO,
-        'email' => $resultadoEmail,
-    ];
+function construirMensajeNotificacionResetPassword(array $usuario, string $tokenPlano, DateTimeInterface $expira): string
+{
+    $username = trim((string) ($usuario['username'] ?? ''));
+    return 'Recuperación de contraseña solicitada para ' . $username
+        . '. Enlace: ' . construirUrlResetPassword($tokenPlano)
+        . ' | Caduca: ' . $expira->format('d/m/Y H:i');
 }
 
 function obtenerResetPasswordValido(PDO $pdo, string $tokenPlano): ?array
@@ -219,7 +188,7 @@ function obtenerResetPasswordValido(PDO $pdo, string $tokenPlano): ?array
 
     $stmt = $pdo->prepare(
         'SELECT pr.id, pr.usuario_id, pr.email, pr.token_hash, pr.expira_en, pr.usado_en, pr.creado_en,
-                u.username, u.email AS usuario_email, u.aprobado, u.activo
+                u.username, u.email AS usuario_email, u.aprobado, u.activo, u.rechazado
          FROM password_resets pr
          INNER JOIN usuarios u ON u.id = pr.usuario_id
          WHERE pr.token_hash = :token_hash
@@ -239,24 +208,24 @@ function obtenerResetPasswordValido(PDO $pdo, string $tokenPlano): ?array
 function completarResetPassword(PDO $pdo, string $tokenPlano, string $passwordNueva, string $passwordConfirmacion): void
 {
     if (!passwordResetSoportado($pdo)) {
-        throw new RuntimeException('La recuperacion de contrasena no esta disponible hasta aplicar la migracion de base de datos.');
+        throw new RuntimeException('La recuperación de contraseña no está disponible hasta aplicar la migración de base de datos.');
     }
 
     if ($passwordNueva === '' || strlen($passwordNueva) < 8) {
-        throw new RuntimeException('La nueva contrasena debe tener al menos 8 caracteres.');
+        throw new RuntimeException('La nueva contraseña debe tener al menos 8 caracteres.');
     }
 
     if ($passwordNueva !== $passwordConfirmacion) {
-        throw new RuntimeException('La nueva contrasena y su confirmacion no coinciden.');
+        throw new RuntimeException('La nueva contraseña y su confirmación no coinciden.');
     }
 
     $reset = obtenerResetPasswordValido($pdo, $tokenPlano);
     if ($reset === null) {
-        throw new RuntimeException('El enlace de recuperacion no es valido o ha caducado.');
+        throw new RuntimeException('El enlace de recuperación no es válido o ha caducado.');
     }
 
-    if ((int) ($reset['aprobado'] ?? 0) !== 1 || (int) ($reset['activo'] ?? 0) !== 1) {
-        throw new RuntimeException('La cuenta asociada no esta disponible para recuperar la contrasena.');
+    if ((int) ($reset['rechazado'] ?? 0) === 1 || (int) ($reset['aprobado'] ?? 0) !== 1 || (int) ($reset['activo'] ?? 0) !== 1) {
+        throw new RuntimeException('La cuenta asociada no está disponible para recuperar la contraseña.');
     }
 
     $fecha = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
@@ -304,7 +273,7 @@ function completarResetPassword(PDO $pdo, string $tokenPlano, string $passwordNu
             'entidad' => 'usuario',
             'entidad_id' => (int) $reset['usuario_id'],
             'entidad_codigo' => (string) ($reset['username'] ?? ''),
-            'descripcion' => 'Restablecimiento de contrasena completado para usuario ' . (string) ($reset['username'] ?? ''),
+            'descripcion' => 'Restablecimiento de contraseña completado para usuario ' . (string) ($reset['username'] ?? ''),
             'fecha_evento' => $fecha,
         ]);
 
@@ -314,137 +283,13 @@ function completarResetPassword(PDO $pdo, string $tokenPlano, string $passwordNu
             $pdo->rollBack();
         }
 
-        if ($e instanceof RuntimeException) {
-            throw $e;
-        }
-
-        throw new RuntimeException('No se ha podido restablecer la contrasena.', 0, $e);
+        throw new RuntimeException('No se ha podido restablecer la contraseña.', 0, $e);
     }
-}
-
-function configuracionEmailPasswordReset(): array
-{
-    try {
-        $config = cargarConfiguracion();
-    } catch (Throwable $e) {
-        return ['enabled' => false];
-    }
-
-    if (!is_array($config)) {
-        return ['enabled' => false];
-    }
-
-    $enabled = (bool) ($config['password_reset_email_enabled'] ?? false);
-    $from = trim((string) ($config['password_reset_email_from'] ?? ''));
-
-    return [
-        'enabled' => $enabled,
-        'from' => $from,
-    ];
-}
-
-function estadoEnvioEmailPasswordReset(): array
-{
-    $config = configuracionEmailPasswordReset();
-    if (($config['enabled'] ?? false) !== true) {
-        return [
-            'ready' => false,
-            'enabled' => false,
-            'message' => 'Recuperacion por email no activada en este entorno.',
-        ];
-    }
-
-    if (!function_exists('mail')) {
-        return [
-            'ready' => false,
-            'enabled' => true,
-            'message' => 'La funcion mail() no esta disponible en el entorno.',
-        ];
-    }
-
-    return [
-        'ready' => true,
-        'enabled' => true,
-        'message' => 'Envio disponible.',
-    ];
 }
 
 function construirUrlResetPassword(string $tokenPlano): string
 {
     return rtrim(BASE_URL, '/') . '/password_reset.php?token=' . rawurlencode($tokenPlano);
-}
-
-function enviarEmailRecuperacionPassword(array $usuario, string $tokenPlano, DateTimeInterface $expira): array
-{
-    $estado = estadoEnvioEmailPasswordReset();
-    if (($estado['ready'] ?? false) !== true) {
-        return [
-            'enabled' => (bool) ($estado['enabled'] ?? false),
-            'sent' => false,
-            'message' => (string) ($estado['message'] ?? 'Recuperacion por email no activada en este entorno.'),
-        ];
-    }
-
-    $config = configuracionEmailPasswordReset();
-
-    $email = trim((string) ($usuario['email'] ?? $usuario['usuario_email'] ?? ''));
-    if (!emailUsuarioOperativo($email)) {
-        return [
-            'enabled' => true,
-            'sent' => false,
-            'message' => $email === ''
-                ? 'La cuenta no tiene email asociado.'
-                : 'La cuenta no tiene un email valido para recuperacion.',
-        ];
-    }
-
-    $asunto = 'Recuperacion de contrasena';
-    $url = construirUrlResetPassword($tokenPlano);
-    $mensaje = implode("\n", [
-        'Hemos recibido una solicitud para restablecer la contrasena de tu cuenta.',
-        'Usuario: ' . (string) ($usuario['username'] ?? ''),
-        'Enlace de recuperacion: ' . $url,
-        'Caduca el: ' . $expira->format('d/m/Y H:i'),
-        '',
-        'Si no has solicitado este cambio, puedes ignorar este mensaje.',
-    ]);
-
-    $headers = [];
-    $from = trim((string) ($config['from'] ?? ''));
-    if ($from !== '') {
-        $headers[] = 'From: ' . $from;
-    }
-    $headers[] = 'Content-Type: text/plain; charset=UTF-8';
-
-    $sent = @mail($email, $asunto, $mensaje, implode("\r\n", $headers));
-
-    return [
-        'enabled' => true,
-        'sent' => $sent,
-        'message' => $sent
-            ? 'Correo de recuperacion enviado correctamente.'
-            : 'No se ha podido enviar el correo de recuperacion.',
-    ];
-}
-
-function emailUsuarioOperativo(string $email): bool
-{
-    $email = trim($email);
-    return $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) !== false;
-}
-
-function invalidarResetPasswordPendiente(PDO $pdo, int $resetId): void
-{
-    if ($resetId <= 0) {
-        return;
-    }
-
-    try {
-        $stmt = $pdo->prepare('DELETE FROM password_resets WHERE id = :id');
-        $stmt->execute([':id' => $resetId]);
-    } catch (Throwable $e) {
-        error_log('No se ha podido limpiar el token de recuperacion pendiente: ' . $e->getMessage());
-    }
 }
 
 function registrarAuditoriaRecuperacionPassword(PDO $pdo, string $identificador, string $resultado, ?array $usuario = null, array $extra = []): void
@@ -453,7 +298,6 @@ function registrarAuditoriaRecuperacionPassword(PDO $pdo, string $identificador,
     $metadata = array_merge([
         'identificador' => trim($identificador),
         'resultado' => $resultado,
-        'email' => trim((string) ($usuario['email'] ?? '')),
     ], $extra);
 
     try {
@@ -464,10 +308,10 @@ function registrarAuditoriaRecuperacionPassword(PDO $pdo, string $identificador,
             'entidad' => 'usuario',
             'entidad_id' => isset($usuario['id']) ? (int) $usuario['id'] : null,
             'entidad_codigo' => $username !== '' ? $username : trim($identificador),
-            'descripcion' => 'Intento de recuperacion de contrasena registrado internamente.',
+            'descripcion' => 'Intento de recuperación de contraseña registrado internamente.',
             'metadata' => $metadata,
         ]);
     } catch (Throwable $e) {
-        error_log('Auditoria de recuperacion de contrasena no registrada: ' . $e->getMessage());
+        error_log('Auditoría de recuperación de contraseña no registrada: ' . $e->getMessage());
     }
 }

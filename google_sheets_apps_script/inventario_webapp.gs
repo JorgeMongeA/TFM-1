@@ -3,10 +3,28 @@ const HISTORICO_SHEET_NAME = 'historico';
 const SECRET_TOKEN = 'congregaciones_sync_2026';
 
 function doGet(e) {
+  const action = normalizeCell_(e && e.parameter ? e.parameter.action : '');
+  if (action === 'delete') {
+    const id = normalizeCell_(e && e.parameter ? e.parameter.id : '');
+    deleteInventoryRowById_(id);
+    return ContentService.createTextOutput('OK');
+  }
+
   return handleRequest_(e, 'GET');
 }
 
 function doPost(e) {
+  try {
+    const rawBody = (e && e.postData && e.postData.contents) || '';
+    const data = rawBody ? JSON.parse(rawBody) : {};
+
+    if (String(data.action || '').trim() === 'reset') {
+      resetSheets_();
+      return ContentService.createTextOutput('OK');
+    }
+  } catch (error) {
+  }
+
   return handleRequest_(e, 'POST');
 }
 
@@ -100,6 +118,41 @@ function getSheetOrThrow_(name) {
     throw new Error('No existe la pestana "' + name + '".');
   }
   return sheet;
+}
+
+function resetSheets_() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = spreadsheet.getSheets();
+
+  sheets.forEach(sheet => {
+    const lastRow = sheet.getLastRow();
+    const lastColumn = Math.max(sheet.getLastColumn(), 9);
+    if (lastRow > 0 && lastColumn > 0) {
+      sheet.clearContents();
+    }
+  });
+
+  const firstSheet = sheets[0];
+  firstSheet.appendRow(['UBICACION','DESTINO','ID','EDITORIAL','FECHA ENTRADA','CODIGO CENTRO','CENTRO','FECHA SALIDA','ORDEN']);
+}
+
+function deleteInventoryRowById_(id) {
+  if (!id) {
+    return;
+  }
+
+  const sheet = getSheetOrThrow_(INVENTARIO_SHEET_NAME);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return;
+  }
+
+  const values = sheet.getRange(2, 1, lastRow - 1, Math.max(sheet.getLastColumn(), 9)).getDisplayValues();
+  for (let i = values.length - 1; i >= 0; i--) {
+    if (normalizeCell_(values[i][2]) === id) {
+      sheet.deleteRow(i + 2);
+    }
+  }
 }
 
 function readInventoryRows_() {

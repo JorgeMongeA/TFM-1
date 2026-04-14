@@ -21,8 +21,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $error = 'Completa todos los campos.';
     } elseif ($nueva !== $confirmacion) {
         $error = 'La nueva contraseña y su confirmación no coinciden.';
-    } elseif (strlen($nueva) < 6) {
-        $error = 'La nueva contraseña debe tener al menos 6 caracteres.';
+    } elseif (strlen($nueva) < 8) {
+        $error = 'La nueva contraseña debe tener al menos 8 caracteres.';
     } else {
         try {
             $pdo = conectar();
@@ -30,12 +30,18 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $stmt->execute([':id' => (int) ($_SESSION['user_id'] ?? 0)]);
             $hashActual = $stmt->fetchColumn();
 
-            if (!is_string($hashActual) || !password_verify($actual, $hashActual)) {
+            if (!is_string($hashActual) || !validarPasswordLogin($actual, $hashActual)) {
                 $error = 'La contraseña actual no es correcta.';
             } else {
-                $stmt = $pdo->prepare('UPDATE usuarios SET password = :password WHERE id = :id');
+                $stmt = $pdo->prepare(
+                    'UPDATE usuarios
+                     SET password = :password,
+                         actualizado_en = :actualizado_en
+                     WHERE id = :id'
+                );
                 $stmt->execute([
                     ':password' => password_hash($nueva, PASSWORD_DEFAULT),
+                    ':actualizado_en' => (new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid')))->format('Y-m-d H:i:s'),
                     ':id' => (int) ($_SESSION['user_id'] ?? 0),
                 ]);
                 $mensaje = 'Contraseña actualizada correctamente.';

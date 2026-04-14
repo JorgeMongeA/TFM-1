@@ -32,7 +32,7 @@ function validarConfirmacionFuerte(PDO $pdo, int $usuarioId, array $datos, array
     }
 
     if ($requierePassword && !passwordActualUsuarioValida($pdo, $usuarioId, (string) ($datos['password_actual'] ?? ''))) {
-        throw new RuntimeException('La contrasena actual no es correcta.');
+        throw new RuntimeException('La contraseña actual no es correcta.');
     }
 }
 

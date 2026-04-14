@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+const GOOGLE_SHEETS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxJXA80jesoay9I0-covN_3co18Gndn2Ck7Q0vbtNt8gWZg42IHW5u2Uu7n6k6b8INR/exec';
+
 function obtenerTokenSyncGoogleSheets(): string
 {
     $token = 'congregaciones_sync_2026';
@@ -11,14 +13,69 @@ function obtenerTokenSyncGoogleSheets(): string
 
 function obtenerUrlWebAppGoogleSheets(array $config = []): string
 {
-    $urlDesplegada = 'https://script.google.com/macros/s/AKfycbwQmjbv9AeHXFrI8QzAn8Jzb8fdhWT3bYRwrIA6torWDc7iGrrfbaM3K7S2nido7ho/exec';
     $urlConfigurada = trim((string) ($config['google_inventory_sync_url'] ?? ''));
 
-    if ($urlConfigurada !== '' && $urlConfigurada !== 'PONER_AQUI_URL_WEB_APP_DE_APPS_SCRIPT' && $urlConfigurada !== $urlDesplegada) {
-        error_log('[GOOGLE_SYNC] Se ignora google_inventory_sync_url por no coincidir con la URL desplegada actual.');
+    if ($urlConfigurada !== '' && $urlConfigurada !== 'PONER_AQUI_URL_WEB_APP_DE_APPS_SCRIPT' && $urlConfigurada !== GOOGLE_SHEETS_WEBAPP_URL) {
+        error_log('[GOOGLE_SYNC] Se ignora google_inventory_sync_url porque no coincide con la URL operativa actual: ' . $urlConfigurada);
     }
 
-    return $urlDesplegada;
+    return GOOGLE_SHEETS_WEBAPP_URL;
+}
+
+function registrarLogAppsScript(string $fase, string $url, string $action, mixed $payload = null, mixed $response = null): void
+{
+    $payloadTexto = $payload === null ? '' : json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $responseTexto = $response === null ? '' : (is_string($response) ? $response : json_encode($response, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+    if ($payloadTexto !== false && strlen($payloadTexto) > 1000) {
+        $payloadTexto = substr($payloadTexto, 0, 1000) . '...';
+    }
+
+    if ($responseTexto !== false && strlen($responseTexto) > 1000) {
+        $responseTexto = substr($responseTexto, 0, 1000) . '...';
+    }
+
+    error_log('[GOOGLE_SYNC][' . $fase . '] url=' . $url . ' action=' . $action
+        . ($payloadTexto !== '' && $payloadTexto !== false ? ' payload=' . $payloadTexto : '')
+        . ($responseTexto !== '' && $responseTexto !== false ? ' response=' . $responseTexto : ''));
+}
+
+function eliminarFilaInventarioEnSheets(string $url, int $inventarioId, int $timeoutSegundos = 10): void
+{
+    $url = trim($url);
+    if ($url === '' || $inventarioId <= 0) {
+        return;
+    }
+
+    $separador = str_contains($url, '?') ? '&' : '?';
+    $urlDelete = $url . $separador . 'action=delete&id=' . rawurlencode((string) $inventarioId);
+    registrarLogAppsScript('request', $urlDelete, 'delete', ['id' => $inventarioId]);
+
+    $respuesta = @file_get_contents($urlDelete);
+    if ($respuesta !== false) {
+        registrarLogAppsScript('response', $urlDelete, 'delete', ['id' => $inventarioId], trim((string) $respuesta));
+        return;
+    }
+
+    if (!function_exists('curl_init')) {
+        error_log('[GOOGLE_SYNC] No se pudo ejecutar delete en Google Sheets para el ID ' . $inventarioId);
+        return;
+    }
+
+    $ch = curl_init($urlDelete);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => min(5, max(1, $timeoutSegundos)),
+        CURLOPT_TIMEOUT => max(1, $timeoutSegundos),
+    ]);
+
+    $respuesta = curl_exec($ch);
+    if ($respuesta === false) {
+        registrarLogAppsScript('error', $urlDelete, 'delete', ['id' => $inventarioId], 'ERROR: ' . (string) curl_error($ch));
+    } else {
+        registrarLogAppsScript('response', $urlDelete, 'delete', ['id' => $inventarioId], trim((string) $respuesta));
+    }
+    curl_close($ch);
 }
 
 function obtenerInventarioSql(PDO $pdo): array
@@ -40,7 +97,7 @@ function obtenerHistoricoPendienteSheets(PDO $pdo): array
     return array_map('normalizarFilaHistoricoSheets', obtenerLineasHistoricoPendientesSheets($pdo));
 }
 
-function llamarAppsScriptInventario(string $url, string $token, string $accion, array $payload = []): array
+function llamarAppsScriptInventario(string $url, string $token, string $accion, array $payload = [], int $timeoutSegundos = 30): array
 {
     if (trim($url) === '' || trim($token) === '') {
         error_log('[GOOGLE_SYNC] Falta URL o token para la accion ' . $accion);
@@ -58,6 +115,11 @@ function llamarAppsScriptInventario(string $url, string $token, string $accion, 
         throw new RuntimeException('No se ha podido sincronizar en este momento.');
     }
 
+    registrarLogAppsScript('request', $url, $accion, [
+        'token' => $token,
+        'payload' => $payload,
+    ]);
+
     $respuesta = false;
     $error = '';
 
@@ -66,7 +128,7 @@ function llamarAppsScriptInventario(string $url, string $token, string $accion, 
             'method' => 'POST',
             'header' => "Content-Type: application/json\r\nAccept: application/json\r\n",
             'content' => $body,
-            'timeout' => 30,
+            'timeout' => max(1, $timeoutSegundos),
             'ignore_errors' => true,
         ],
     ]);
@@ -80,8 +142,8 @@ function llamarAppsScriptInventario(string $url, string $token, string $accion, 
             CURLOPT_POSTFIELDS => $body,
             CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_TIMEOUT => 30,
+            CURLOPT_CONNECTTIMEOUT => min(10, max(1, $timeoutSegundos)),
+            CURLOPT_TIMEOUT => max(1, $timeoutSegundos),
         ]);
 
         $respuesta = curl_exec($ch);
@@ -97,6 +159,10 @@ function llamarAppsScriptInventario(string $url, string $token, string $accion, 
     }
 
     $textoRespuesta = trim((string) $respuesta);
+    registrarLogAppsScript('response', $url, $accion, [
+        'token' => $token,
+        'payload' => $payload,
+    ], $textoRespuesta);
     $datos = json_decode($textoRespuesta, true);
     if (!is_array($datos)) {
         $fragmento = mb_substr($textoRespuesta, 0, 300);

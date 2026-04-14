@@ -11,6 +11,7 @@ CREATE TABLE usuarios (
     rol_id INT NOT NULL,
     activo TINYINT(1) NOT NULL DEFAULT 1,
     aprobado TINYINT(1) NOT NULL DEFAULT 1,
+    rechazado TINYINT(1) NOT NULL DEFAULT 0,
     aprobado_por_id INT NULL,
     fecha_aprobacion DATETIME NULL,
     creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -190,4 +191,15 @@ CREATE TABLE password_resets (
     CONSTRAINT fk_password_resets_usuario
         FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
         ON DELETE CASCADE
+);
+
+CREATE TABLE notificaciones (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    usuario_destino VARCHAR(100) NOT NULL,
+    tipo VARCHAR(50) NOT NULL,
+    mensaje TEXT NOT NULL,
+    leida TINYINT(1) NOT NULL DEFAULT 0,
+    fecha DATETIME NOT NULL,
+    INDEX idx_notificaciones_destino_fecha (usuario_destino, fecha),
+    INDEX idx_notificaciones_leida (usuario_destino, leida)
 );

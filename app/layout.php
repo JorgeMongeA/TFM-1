@@ -287,7 +287,7 @@ function renderAppLayoutStart(string $title, string $activeKey, ?string $pageTit
                     </div>
                     <div class="page-header-actions d-flex flex-wrap gap-2">
                         <?php if (puedeCambiarPassword()): ?>
-                            <a class="btn btn-outline-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/cambiar_password.php">Cambiar contrasena</a>
+                            <a class="btn btn-outline-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/cambiar_password.php">Cambiar contraseña</a>
                         <?php endif; ?>
                         <a class="btn btn-outline-danger" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/logout.php">Cerrar sesion</a>
                     </div>

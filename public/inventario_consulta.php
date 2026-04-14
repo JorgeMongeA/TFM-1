@@ -60,7 +60,7 @@ try {
 
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $accionInventario = trim((string) ($_POST['accion'] ?? ''));
-        $accionSincronizacion = trim((string) ($_POST['sync_action'] ?? 'csv'));
+        $accionSincronizacion = trim((string) ($_POST['sync_action'] ?? 'sheet_to_sql'));
 
         if ($accionInventario === 'anular_inventario') {
             requierePermiso(PERMISO_INVENTARIO_EDICION, 'No tienes permisos para anular entradas de inventario.');
@@ -74,19 +74,18 @@ try {
             $motivoAnulacion = trim((string) ($_POST['motivo_anulacion'] ?? ''));
             anularEntradaInventario($pdo, $inventarioId, obtenerContextoActividadActual(), $motivoAnulacion);
 
-            $mensajeFlash = 'Entrada ID ' . $inventarioId . ' anulada correctamente y retirada del inventario activo.';
+            $mensajeFlash = 'Entrada ID ' . $inventarioId . ' eliminada correctamente.';
             $tipoFlash = 'success';
 
             try {
                 $config = cargarConfiguracion();
                 $scriptUrl = obtenerUrlWebAppGoogleSheets($config);
-                $tokenSheets = obtenerTokenSyncGoogleSheets();
-                sincronizarInventarioSheetsDesdeSql($pdo, $scriptUrl, $tokenSheets);
-                $mensajeFlash .= ' Google Sheets se ha actualizado con el inventario vigente.';
+                eliminarFilaInventarioEnSheets($scriptUrl, $inventarioId);
+                $mensajeFlash .= ' Google Sheets se ha actualizado.';
             } catch (Throwable $syncError) {
                 error_log('[GOOGLE_SYNC] inventario_consulta.php anulacion | ' . $syncError->getMessage());
                 $tipoFlash = 'warning';
-                $mensajeFlash .= ' La anulacion queda guardada en la app, pero la replica en Google Sheets esta pendiente.';
+                $mensajeFlash .= ' El borrado en la app esta hecho, pero Google Sheets no ha respondido.';
             }
 
             $_SESSION['flash_inventario'] = [
@@ -108,12 +107,9 @@ try {
             $token = obtenerTokenSyncGoogleSheets();
             $resultadoReflejoSheets = sincronizarInventarioSheetsDesdeSql($pdo, $scriptUrl, $token);
         } else {
-            $csvUrl = trim((string) ($config['inventario_csv_url'] ?? ''));
-            if ($csvUrl === '') {
-                throw new RuntimeException('Falta la clave inventario_csv_url en config/config.php.');
-            }
-
-            $resultadoSincronizacion = sincronizarInventarioDesdeCsv($pdo, $csvUrl);
+            $scriptUrl = obtenerUrlWebAppGoogleSheets($config);
+            $token = obtenerTokenSyncGoogleSheets();
+            $resultadoSincronizacion = sincronizarInventarioBidireccional($pdo, $scriptUrl, $token);
         }
     }
 
@@ -128,7 +124,7 @@ renderAppLayoutStart(
     'Inventario - Consulta',
     'inventario_consulta',
     'Inventario - Consulta',
-    'Consulta de stock actual con anulacion controlada y reflejo hacia Google Sheets'
+    'Consulta de stock actual y borrado directo con reflejo hacia Google Sheets'
 );
 ?>
 <section class="panel panel-card">
@@ -166,7 +162,7 @@ renderAppLayoutStart(
                 <p class="eyebrow">Sincronizacion</p>
                 <div class="d-grid gap-2">
                     <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/inventario_consulta.php">
-                        <input type="hidden" name="sync_action" value="csv">
+                        <input type="hidden" name="sync_action" value="sheet_to_sql">
                         <button class="btn btn-primary mt-0 w-100" type="submit">Sincronizar desde Google Sheets</button>
                     </form>
                     <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/inventario_consulta.php">
@@ -213,12 +209,12 @@ renderAppLayoutStart(
     <?php if ($resultadoSincronizacion !== null): ?>
         <div class="card border-0 shadow-sm mb-4">
             <div class="card-body">
-                <p class="eyebrow">Resultado de sincronizacion CSV</p>
+                <p class="eyebrow">Resultado de sincronizacion Google Sheets -> SQL</p>
                 <div class="row g-3 mb-3">
-                    <div class="col-6 col-xl-3"><strong>Total leidos:</strong> <?= htmlspecialchars((string) $resultadoSincronizacion['total_leidos'], ENT_QUOTES, 'UTF-8') ?></div>
-                    <div class="col-6 col-xl-3"><strong>Insertados:</strong> <?= htmlspecialchars((string) $resultadoSincronizacion['insertados'], ENT_QUOTES, 'UTF-8') ?></div>
-                    <div class="col-6 col-xl-3"><strong>Actualizados:</strong> <?= htmlspecialchars((string) $resultadoSincronizacion['actualizados'], ENT_QUOTES, 'UTF-8') ?></div>
-                    <div class="col-6 col-xl-3"><strong>Ignorados:</strong> <?= htmlspecialchars((string) $resultadoSincronizacion['ignorados'], ENT_QUOTES, 'UTF-8') ?></div>
+                    <div class="col-6 col-xl-3"><strong>Total SQL:</strong> <?= htmlspecialchars((string) ($resultadoSincronizacion['total_sql'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
+                    <div class="col-6 col-xl-3"><strong>Total Sheets:</strong> <?= htmlspecialchars((string) ($resultadoSincronizacion['total_sheet'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
+                    <div class="col-6 col-xl-3"><strong>Insertados en SQL:</strong> <?= htmlspecialchars((string) ($resultadoSincronizacion['insertados_en_sql'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
+                    <div class="col-6 col-xl-3"><strong>Actualizados en SQL:</strong> <?= htmlspecialchars((string) ($resultadoSincronizacion['actualizados_en_sql'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
                 </div>
                 <?php if (($resultadoSincronizacion['errores'] ?? []) !== []): ?>
                     <div class="alert alert-warning mb-0">
@@ -300,7 +296,7 @@ renderAppLayoutStart(
                                         data-inventario-id="<?= htmlspecialchars((string) $filaId, ENT_QUOTES, 'UTF-8') ?>"
                                         data-inventario-resumen="<?= htmlspecialchars($resumenFila, ENT_QUOTES, 'UTF-8') ?>"
                                     >
-                                        Anular
+                                        Borrar
                                     </button>
                                 </td>
                             <?php endif; ?>
@@ -317,20 +313,16 @@ renderAppLayoutStart(
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 class="modal-title fs-5" id="anularInventarioLabel">Anular entrada de inventario</h2>
+                <h2 class="modal-title fs-5" id="anularInventarioLabel">Borrar entrada de inventario</h2>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
-                <p class="mb-2">La aplicacion seguira siendo la fuente de verdad y la hoja de inventario se reconstruira desde SQL.</p>
+                <p class="mb-2">Esta accion borrara la entrada del sistema y tratara de borrarla tambien de Google Sheets.</p>
                 <div class="alert alert-light border mb-3">
                     <strong>Entrada seleccionada:</strong>
                     <div id="anularInventarioResumen" class="mt-1">Sin seleccion</div>
                 </div>
-                <ul class="mb-0 text-body-secondary">
-                    <li>No se permite si ya participa en albaranes confirmados.</li>
-                    <li>No se permite si ya esta vinculada a pedidos.</li>
-                    <li>La operacion quedara registrada con usuario, fecha y motivo.</li>
-                </ul>
+                <p class="mb-0 text-body-secondary">La operacion quedara registrada en actividad.</p>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -339,9 +331,8 @@ renderAppLayoutStart(
                     <input type="hidden" name="inventario_id" id="anularInventarioId" value="">
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfAnulacion, ENT_QUOTES, 'UTF-8') ?>">
                     <input type="hidden" name="return_query" value="<?= htmlspecialchars((string) ($_SERVER['QUERY_STRING'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
-                    <label class="form-label mb-0" for="motivo_anulacion">Motivo de anulacion</label>
-                    <textarea class="form-control" id="motivo_anulacion" name="motivo_anulacion" rows="3" required minlength="8" placeholder="Ej.: entrada duplicada o carga realizada por error"></textarea>
-                    <button type="submit" class="btn btn-danger">Confirmar anulacion</button>
+                    <input type="hidden" name="motivo_anulacion" value="Borrado manual desde inventario">
+                    <button type="submit" class="btn btn-danger">Confirmar borrado</button>
                 </form>
             </div>
         </div>
@@ -352,7 +343,6 @@ renderAppLayoutStart(
 const anularInventarioModal = document.getElementById('anularInventarioModal');
 const anularInventarioIdInput = document.getElementById('anularInventarioId');
 const anularInventarioResumen = document.getElementById('anularInventarioResumen');
-const motivoAnulacionInput = document.getElementById('motivo_anulacion');
 
 if (anularInventarioModal) {
     anularInventarioModal.addEventListener('show.bs.modal', (event) => {
@@ -366,10 +356,6 @@ if (anularInventarioModal) {
 
         if (anularInventarioResumen) {
             anularInventarioResumen.textContent = resumen;
-        }
-
-        if (motivoAnulacionInput) {
-            motivoAnulacionInput.value = '';
         }
     });
 }

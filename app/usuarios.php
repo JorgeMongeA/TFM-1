@@ -3,10 +3,12 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/actividad.php';
+require_once __DIR__ . '/notificaciones.php';
 
 const USUARIO_ESTADO_PENDIENTE = 'pendiente';
 const USUARIO_ESTADO_ACTIVO = 'activo';
 const USUARIO_ESTADO_DESACTIVADO = 'desactivado';
+const USUARIO_ESTADO_RECHAZADO = 'rechazado';
 const USUARIO_CIRCUITO_SOLICITUDES_USERNAME = 'almacen';
 const USUARIO_CIRCUITO_SOLICITUDES_EMAIL = 'almacen@maximosl.com';
 
@@ -18,6 +20,30 @@ function rolesFuncionalesUsuarios(): array
     ];
 }
 
+function columnasUsuariosDisponibles(PDO $pdo): array
+{
+    static $cache = null;
+
+    if (is_array($cache)) {
+        return $cache;
+    }
+
+    try {
+        $stmt = $pdo->query('SHOW COLUMNS FROM usuarios');
+        $columnas = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+        $cache = is_array($columnas) ? $columnas : [];
+        return $cache;
+    } catch (Throwable $e) {
+        $cache = [];
+        return $cache;
+    }
+}
+
+function usuariosTieneColumna(PDO $pdo, string $columna): bool
+{
+    return in_array($columna, columnasUsuariosDisponibles($pdo), true);
+}
+
 function usuariosSoportanGestion(PDO $pdo): bool
 {
     static $cache = null;
@@ -26,38 +52,17 @@ function usuariosSoportanGestion(PDO $pdo): bool
         return $cache;
     }
 
-    $columnasNecesarias = [
-        'email',
-        'activo',
-        'aprobado',
-        'aprobado_por_id',
-        'fecha_aprobacion',
-        'creado_en',
-        'actualizado_en',
-    ];
+    $columnasNecesarias = ['email', 'activo', 'aprobado'];
 
-    try {
-        $stmt = $pdo->query('SHOW COLUMNS FROM usuarios');
-        $columnas = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
-
-        if (!is_array($columnas)) {
+    foreach ($columnasNecesarias as $columna) {
+        if (!usuariosTieneColumna($pdo, $columna)) {
             $cache = false;
             return $cache;
         }
-
-        foreach ($columnasNecesarias as $columna) {
-            if (!in_array($columna, $columnas, true)) {
-                $cache = false;
-                return $cache;
-            }
-        }
-
-        $cache = true;
-        return $cache;
-    } catch (Throwable $e) {
-        $cache = false;
-        return $cache;
     }
+
+    $cache = true;
+    return $cache;
 }
 
 function leerFormularioUsuarioDesdeRequest(array $source): array
@@ -165,7 +170,12 @@ function contarUsuariosPendientes(PDO $pdo): int
         return 0;
     }
 
-    $stmt = $pdo->query('SELECT COUNT(*) FROM usuarios WHERE aprobado = 0');
+    $sql = 'SELECT COUNT(*) FROM usuarios WHERE aprobado = 0';
+    if (usuariosTieneColumna($pdo, 'rechazado')) {
+        $sql .= ' AND rechazado = 0';
+    }
+
+    $stmt = $pdo->query($sql);
     return (int) $stmt->fetchColumn();
 }
 
@@ -175,12 +185,30 @@ function listarUsuariosGestion(PDO $pdo, array $filtros = []): array
         throw new RuntimeException('La gestion avanzada de usuarios no esta disponible hasta aplicar la migracion de base de datos.');
     }
 
-    $sql = 'SELECT u.id, u.username, u.email, u.rol_id, r.nombre AS rol_nombre, u.activo, u.aprobado,
-                   u.aprobado_por_id, ua.username AS aprobado_por_username, u.fecha_aprobacion,
-                   u.creado_en, u.actualizado_en
+    $select = [
+        'u.id',
+        'u.username',
+        usuariosTieneColumna($pdo, 'email') ? 'u.email' : 'NULL AS email',
+        'u.rol_id',
+        'r.nombre AS rol_nombre',
+        usuariosTieneColumna($pdo, 'activo') ? 'u.activo' : '1 AS activo',
+        usuariosTieneColumna($pdo, 'aprobado') ? 'u.aprobado' : '1 AS aprobado',
+        usuariosTieneColumna($pdo, 'rechazado') ? 'u.rechazado' : '0 AS rechazado',
+        usuariosTieneColumna($pdo, 'aprobado_por_id') ? 'u.aprobado_por_id' : 'NULL AS aprobado_por_id',
+        usuariosTieneColumna($pdo, 'aprobado_por_id') ? 'ua.username AS aprobado_por_username' : 'NULL AS aprobado_por_username',
+        usuariosTieneColumna($pdo, 'fecha_aprobacion') ? 'u.fecha_aprobacion' : 'NULL AS fecha_aprobacion',
+        usuariosTieneColumna($pdo, 'creado_en') ? 'u.creado_en' : 'NULL AS creado_en',
+        usuariosTieneColumna($pdo, 'actualizado_en') ? 'u.actualizado_en' : 'NULL AS actualizado_en',
+    ];
+
+    $sql = 'SELECT ' . implode(', ', $select) . '
             FROM usuarios u
-            LEFT JOIN roles r ON r.id = u.rol_id
-            LEFT JOIN usuarios ua ON ua.id = u.aprobado_por_id
+            LEFT JOIN roles r ON r.id = u.rol_id';
+    if (usuariosTieneColumna($pdo, 'aprobado_por_id')) {
+        $sql .= '
+            LEFT JOIN usuarios ua ON ua.id = u.aprobado_por_id';
+    }
+    $sql .= '
             WHERE 1 = 1';
     $params = [];
 
@@ -189,12 +217,20 @@ function listarUsuariosGestion(PDO $pdo, array $filtros = []): array
         switch ($estado) {
             case USUARIO_ESTADO_PENDIENTE:
                 $sql .= ' AND u.aprobado = 0';
+                if (usuariosTieneColumna($pdo, 'rechazado')) {
+                    $sql .= ' AND u.rechazado = 0';
+                }
                 break;
             case USUARIO_ESTADO_ACTIVO:
                 $sql .= ' AND u.aprobado = 1 AND u.activo = 1';
                 break;
             case USUARIO_ESTADO_DESACTIVADO:
                 $sql .= ' AND u.aprobado = 1 AND u.activo = 0';
+                break;
+            case USUARIO_ESTADO_RECHAZADO:
+                $sql .= usuariosTieneColumna($pdo, 'rechazado')
+                    ? ' AND u.rechazado = 1'
+                    : ' AND 1 = 0';
                 break;
         }
     }
@@ -224,7 +260,11 @@ function listarUsuariosGestion(PDO $pdo, array $filtros = []): array
         $params[':q'] = '%' . $texto . '%';
     }
 
-    $sql .= ' ORDER BY u.aprobado ASC, u.creado_en DESC, u.id DESC';
+    $sql .= ' ORDER BY u.aprobado ASC';
+    if (usuariosTieneColumna($pdo, 'creado_en')) {
+        $sql .= ', u.creado_en DESC';
+    }
+    $sql .= ', u.id DESC';
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
@@ -246,6 +286,10 @@ function listarUsuariosGestion(PDO $pdo, array $filtros = []): array
 
 function estadoGestionUsuario(array $usuario): string
 {
+    if ((int) ($usuario['rechazado'] ?? 0) === 1) {
+        return USUARIO_ESTADO_RECHAZADO;
+    }
+
     if ((int) ($usuario['aprobado'] ?? 0) !== 1) {
         return USUARIO_ESTADO_PENDIENTE;
     }
@@ -260,6 +304,7 @@ function claseEstadoGestionUsuario(string $estado): string
     return match ($estado) {
         USUARIO_ESTADO_ACTIVO => 'text-bg-success',
         USUARIO_ESTADO_DESACTIVADO => 'text-bg-secondary',
+        USUARIO_ESTADO_RECHAZADO => 'text-bg-danger',
         default => 'text-bg-warning',
     };
 }
@@ -269,6 +314,7 @@ function etiquetaEstadoGestionUsuario(string $estado): string
     return match ($estado) {
         USUARIO_ESTADO_ACTIVO => 'Activo',
         USUARIO_ESTADO_DESACTIVADO => 'Desactivado',
+        USUARIO_ESTADO_RECHAZADO => 'Rechazado',
         default => 'Pendiente',
     };
 }
@@ -300,11 +346,11 @@ function validarDatosNuevoUsuario(PDO $pdo, array $datos): array
     }
 
     if ($password === '' || strlen($password) < 8) {
-        $errores[] = 'La contrasena debe tener al menos 8 caracteres.';
+        $errores[] = 'La contraseña debe tener al menos 8 caracteres.';
     }
 
     if ($password !== $passwordConfirmacion) {
-        $errores[] = 'La contrasena y su confirmacion no coinciden.';
+        $errores[] = 'La contraseña y su confirmación no coinciden.';
     }
 
     if (!rolIdAsignableUsuarios($pdo, $rolId)) {
@@ -339,39 +385,43 @@ function crearSolicitudUsuario(PDO $pdo, array $datos, ?array $solicitante = nul
     $passwordHash = password_hash((string) $datos['password'], PASSWORD_DEFAULT);
     $fecha = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
 
-    $stmt = $pdo->prepare(
-        'INSERT INTO usuarios (
-            username,
-            email,
-            password,
-            rol_id,
-            activo,
-            aprobado,
-            aprobado_por_id,
-            fecha_aprobacion,
-            creado_en,
-            actualizado_en
-         ) VALUES (
-            :username,
-            :email,
-            :password,
-            :rol_id,
-            0,
-            0,
-            NULL,
-            NULL,
-            :creado_en,
-            :actualizado_en
-         )'
-    );
-    $stmt->execute([
+    $columnasInsert = ['username', 'email', 'password', 'rol_id'];
+    $valoresInsert = [':username', ':email', ':password', ':rol_id'];
+    $paramsInsert = [
         ':username' => $username,
         ':email' => $email,
         ':password' => $passwordHash,
         ':rol_id' => $rolId,
-        ':creado_en' => $fecha->format('Y-m-d H:i:s'),
-        ':actualizado_en' => $fecha->format('Y-m-d H:i:s'),
-    ]);
+    ];
+
+    if (usuariosTieneColumna($pdo, 'activo')) {
+        $columnasInsert[] = 'activo';
+        $valoresInsert[] = '0';
+    }
+    if (usuariosTieneColumna($pdo, 'aprobado')) {
+        $columnasInsert[] = 'aprobado';
+        $valoresInsert[] = '0';
+    }
+    if (usuariosTieneColumna($pdo, 'rechazado')) {
+        $columnasInsert[] = 'rechazado';
+        $valoresInsert[] = '0';
+    }
+    if (usuariosTieneColumna($pdo, 'creado_en')) {
+        $columnasInsert[] = 'creado_en';
+        $valoresInsert[] = ':creado_en';
+        $paramsInsert[':creado_en'] = $fecha->format('Y-m-d H:i:s');
+    }
+    if (usuariosTieneColumna($pdo, 'actualizado_en')) {
+        $columnasInsert[] = 'actualizado_en';
+        $valoresInsert[] = ':actualizado_en';
+        $paramsInsert[':actualizado_en'] = $fecha->format('Y-m-d H:i:s');
+    }
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO usuarios (' . implode(', ', $columnasInsert) . ')
+         VALUES (' . implode(', ', $valoresInsert) . ')'
+    );
+    $stmt->execute($paramsInsert);
 
     $usuarioId = (int) $pdo->lastInsertId();
     $rol = obtenerRolPorId($pdo, $rolId);
@@ -394,6 +444,12 @@ function crearSolicitudUsuario(PDO $pdo, array $datos, ?array $solicitante = nul
         'fecha_evento' => $fecha,
     ]);
 
+    try {
+        crearNotificacion($pdo, USUARIO_CIRCUITO_SOLICITUDES_USERNAME, NOTIFICACION_TIPO_ALTA_USUARIO, 'Nueva solicitud de usuario: ' . $username);
+    } catch (Throwable $e) {
+        error_log('[USUARIOS] No se pudo crear notificacion de usuario nuevo para almacen: ' . $e->getMessage());
+    }
+
     return obtenerUsuarioGestionPorId($pdo, $usuarioId) ?? [];
 }
 
@@ -403,16 +459,33 @@ function obtenerUsuarioGestionPorId(PDO $pdo, int $usuarioId): ?array
         return null;
     }
 
-    $stmt = $pdo->prepare(
-        'SELECT u.id, u.username, u.email, u.rol_id, r.nombre AS rol_nombre, u.activo, u.aprobado,
-                u.aprobado_por_id, ua.username AS aprobado_por_username, u.fecha_aprobacion,
-                u.creado_en, u.actualizado_en
+    $select = [
+        'u.id',
+        'u.username',
+        usuariosTieneColumna($pdo, 'email') ? 'u.email' : 'NULL AS email',
+        'u.rol_id',
+        'r.nombre AS rol_nombre',
+        usuariosTieneColumna($pdo, 'activo') ? 'u.activo' : '1 AS activo',
+        usuariosTieneColumna($pdo, 'aprobado') ? 'u.aprobado' : '1 AS aprobado',
+        usuariosTieneColumna($pdo, 'rechazado') ? 'u.rechazado' : '0 AS rechazado',
+        usuariosTieneColumna($pdo, 'aprobado_por_id') ? 'u.aprobado_por_id' : 'NULL AS aprobado_por_id',
+        usuariosTieneColumna($pdo, 'aprobado_por_id') ? 'ua.username AS aprobado_por_username' : 'NULL AS aprobado_por_username',
+        usuariosTieneColumna($pdo, 'fecha_aprobacion') ? 'u.fecha_aprobacion' : 'NULL AS fecha_aprobacion',
+        usuariosTieneColumna($pdo, 'creado_en') ? 'u.creado_en' : 'NULL AS creado_en',
+        usuariosTieneColumna($pdo, 'actualizado_en') ? 'u.actualizado_en' : 'NULL AS actualizado_en',
+    ];
+    $sql = 'SELECT ' . implode(', ', $select) . '
          FROM usuarios u
-         LEFT JOIN roles r ON r.id = u.rol_id
-         LEFT JOIN usuarios ua ON ua.id = u.aprobado_por_id
+         LEFT JOIN roles r ON r.id = u.rol_id';
+    if (usuariosTieneColumna($pdo, 'aprobado_por_id')) {
+        $sql .= '
+         LEFT JOIN usuarios ua ON ua.id = u.aprobado_por_id';
+    }
+    $sql .= '
          WHERE u.id = :id
-         LIMIT 1'
-    );
+         LIMIT 1';
+
+    $stmt = $pdo->prepare($sql);
     $stmt->execute([':id' => $usuarioId]);
     $usuario = $stmt->fetch();
 
@@ -439,23 +512,32 @@ function aprobarUsuario(PDO $pdo, int $usuarioId, int $rolId, array $admin): voi
     $adminUsername = trim((string) ($admin['username'] ?? ''));
     $fecha = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
 
-    $stmt = $pdo->prepare(
-        'UPDATE usuarios
-         SET rol_id = :rol_id,
-             aprobado = 1,
-             activo = 1,
-             aprobado_por_id = :aprobado_por_id,
-             fecha_aprobacion = :fecha_aprobacion,
-             actualizado_en = :actualizado_en
-         WHERE id = :id'
-    );
-    $stmt->execute([
-        ':rol_id' => $rolId,
-        ':aprobado_por_id' => $adminId,
-        ':fecha_aprobacion' => $fecha->format('Y-m-d H:i:s'),
-        ':actualizado_en' => $fecha->format('Y-m-d H:i:s'),
-        ':id' => $usuarioId,
-    ]);
+    $sets = ['rol_id = :rol_id'];
+    $params = [':rol_id' => $rolId, ':id' => $usuarioId];
+    if (usuariosTieneColumna($pdo, 'aprobado')) {
+        $sets[] = 'aprobado = 1';
+    }
+    if (usuariosTieneColumna($pdo, 'rechazado')) {
+        $sets[] = 'rechazado = 0';
+    }
+    if (usuariosTieneColumna($pdo, 'activo')) {
+        $sets[] = 'activo = 1';
+    }
+    if (usuariosTieneColumna($pdo, 'aprobado_por_id')) {
+        $sets[] = 'aprobado_por_id = :aprobado_por_id';
+        $params[':aprobado_por_id'] = $adminId;
+    }
+    if (usuariosTieneColumna($pdo, 'fecha_aprobacion')) {
+        $sets[] = 'fecha_aprobacion = :fecha_aprobacion';
+        $params[':fecha_aprobacion'] = $fecha->format('Y-m-d H:i:s');
+    }
+    if (usuariosTieneColumna($pdo, 'actualizado_en')) {
+        $sets[] = 'actualizado_en = :actualizado_en';
+        $params[':actualizado_en'] = $fecha->format('Y-m-d H:i:s');
+    }
+
+    $stmt = $pdo->prepare('UPDATE usuarios SET ' . implode(', ', $sets) . ' WHERE id = :id');
+    $stmt->execute($params);
 
     registrarActividadSistema($pdo, [
         'usuario_id' => $adminId,
@@ -496,19 +578,22 @@ function actualizarEstadoYRolUsuario(PDO $pdo, int $usuarioId, int $rolId, bool 
     $adminId = isset($admin['user_id']) ? (int) $admin['user_id'] : null;
     $adminUsername = trim((string) ($admin['username'] ?? ''));
 
-    $stmt = $pdo->prepare(
-        'UPDATE usuarios
-         SET rol_id = :rol_id,
-             activo = :activo,
-             actualizado_en = :actualizado_en
-         WHERE id = :id'
-    );
-    $stmt->execute([
+    $sets = ['rol_id = :rol_id'];
+    $params = [
         ':rol_id' => $rolId,
-        ':activo' => $activo ? 1 : 0,
-        ':actualizado_en' => $fecha->format('Y-m-d H:i:s'),
         ':id' => $usuarioId,
-    ]);
+    ];
+    if (usuariosTieneColumna($pdo, 'activo')) {
+        $sets[] = 'activo = :activo';
+        $params[':activo'] = $activo ? 1 : 0;
+    }
+    if (usuariosTieneColumna($pdo, 'actualizado_en')) {
+        $sets[] = 'actualizado_en = :actualizado_en';
+        $params[':actualizado_en'] = $fecha->format('Y-m-d H:i:s');
+    }
+
+    $stmt = $pdo->prepare('UPDATE usuarios SET ' . implode(', ', $sets) . ' WHERE id = :id');
+    $stmt->execute($params);
 
     $rolAnterior = normalizarRolAplicacion((string) ($usuario['rol_nombre'] ?? ''));
     $rolNuevo = normalizarRolAplicacion((string) ($rol['nombre'] ?? ''));
@@ -542,6 +627,56 @@ function actualizarEstadoYRolUsuario(PDO $pdo, int $usuarioId, int $rolId, bool 
             'fecha_evento' => $fecha,
         ]);
     }
+}
+
+function rechazarUsuario(PDO $pdo, int $usuarioId, array $admin): void
+{
+    if (!usuariosSoportanGestion($pdo)) {
+        throw new RuntimeException('La gestion avanzada de usuarios no esta disponible hasta aplicar la migracion de base de datos.');
+    }
+
+    $usuario = obtenerUsuarioGestionPorId($pdo, $usuarioId);
+    if ($usuario === null) {
+        throw new RuntimeException('El usuario indicado no existe.');
+    }
+
+    if ((int) ($usuario['aprobado'] ?? 0) === 1) {
+        throw new RuntimeException('Solo se pueden rechazar solicitudes pendientes.');
+    }
+
+    $fecha = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
+    $adminId = isset($admin['user_id']) ? (int) $admin['user_id'] : null;
+    $adminUsername = trim((string) ($admin['username'] ?? ''));
+
+    $sets = [];
+    $params = [':id' => $usuarioId];
+    if (usuariosTieneColumna($pdo, 'rechazado')) {
+        $sets[] = 'rechazado = 1';
+    }
+    if (usuariosTieneColumna($pdo, 'activo')) {
+        $sets[] = 'activo = 0';
+    }
+    if (usuariosTieneColumna($pdo, 'aprobado')) {
+        $sets[] = 'aprobado = 0';
+    }
+    if (usuariosTieneColumna($pdo, 'actualizado_en')) {
+        $sets[] = 'actualizado_en = :actualizado_en';
+        $params[':actualizado_en'] = $fecha->format('Y-m-d H:i:s');
+    }
+
+    $stmt = $pdo->prepare('UPDATE usuarios SET ' . implode(', ', $sets) . ' WHERE id = :id');
+    $stmt->execute($params);
+
+    registrarActividadSistema($pdo, [
+        'usuario_id' => $adminId,
+        'usuario' => $adminUsername,
+        'tipo_evento' => 'usuario_rechazado',
+        'entidad' => 'usuario',
+        'entidad_id' => $usuarioId,
+        'entidad_codigo' => (string) ($usuario['username'] ?? ''),
+        'descripcion' => 'Rechazo de usuario ' . (string) ($usuario['username'] ?? ''),
+        'fecha_evento' => $fecha,
+    ]);
 }
 
 function existeUsernameUsuario(PDO $pdo, string $username): bool

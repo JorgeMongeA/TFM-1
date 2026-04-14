@@ -24,10 +24,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             exit;
         }
 
-        $error = 'Usuario o contrasena incorrectos.';
+        $error = 'Usuario o contraseña incorrectos.';
     } catch (RuntimeException $e) {
         $mensajeError = trim($e->getMessage());
-        $error = $mensajeError !== '' ? $mensajeError : 'Usuario o contrasena incorrectos.';
+        $error = $mensajeError !== '' ? $mensajeError : 'Usuario o contraseña incorrectos.';
     }
 }
 ?>
@@ -59,14 +59,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     value="<?= htmlspecialchars((string) ($_POST['username'] ?? $_POST['usuario'] ?? ''), ENT_QUOTES, 'UTF-8') ?>"
                 >
 
-                <label for="password">Contrasena</label>
+                <label for="password">Contraseña</label>
                 <input id="password" name="password" type="password" required>
 
                 <button class="btn-primary" type="submit">Entrar</button>
             </form>
 
             <div class="mt-3">
-                <a href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/password_forgot.php">Has olvidado tu contrasena?</a>
+                <a href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/password_forgot.php">¿Has olvidado tu contraseña?</a>
             </div>
 
             <div class="mt-2">

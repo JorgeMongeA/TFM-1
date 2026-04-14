@@ -6,6 +6,7 @@ require_once dirname(__DIR__) . '/app/auth.php';
 require_once dirname(__DIR__) . '/app/conexion.php';
 require_once dirname(__DIR__) . '/app/actividad.php';
 require_once dirname(__DIR__) . '/app/layout.php';
+require_once dirname(__DIR__) . '/app/notificaciones.php';
 require_once dirname(__DIR__) . '/app/usuarios.php';
 
 require_login();
@@ -17,6 +18,18 @@ $accesos = [];
 $ultimaActividad = [];
 $errorActividad = '';
 $solicitudesPendientes = 0;
+$notificaciones = [];
+$notificacionesNoLeidas = 0;
+$flashSistema = $_SESSION['flash_sistema'] ?? null;
+unset($_SESSION['flash_sistema']);
+
+if (is_array($flashSistema) && trim((string) ($flashSistema['mensaje'] ?? '')) !== '') {
+    $mensajeSistema = trim((string) $flashSistema['mensaje']);
+    $mensajeSistemaOk = (bool) ($flashSistema['ok'] ?? true);
+} else {
+    $mensajeSistema = '';
+    $mensajeSistemaOk = true;
+}
 
 if (puedeVerInventario()) {
     $accesos[] = [
@@ -58,12 +71,30 @@ if (puedeAccederCentros()) {
 
 try {
     $pdo = conectar();
+
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && usuarioEsAlmacen()) {
+        $accion = trim((string) ($_POST['accion'] ?? ''));
+        if ($accion === 'marcar_notificacion_leida') {
+            marcarNotificacionLeida($pdo, (int) ($_POST['notificacion_id'] ?? 0), USUARIO_CIRCUITO_SOLICITUDES_USERNAME);
+            header('Location: ' . BASE_URL . '/dashboard.php');
+            exit;
+        }
+    }
+
     $ultimaActividad = obtenerUltimaActividad($pdo, 20);
     if (puedeGestionarUsuarios()) {
         $solicitudesPendientes = contarUsuariosPendientes($pdo);
+        $notificaciones = listarNotificacionesUsuario($pdo, USUARIO_CIRCUITO_SOLICITUDES_USERNAME, 10);
+        $notificacionesNoLeidas = contarNotificacionesNoLeidas($pdo, USUARIO_CIRCUITO_SOLICITUDES_USERNAME);
+
+        if ($notificaciones === [] && isset($_GET['debug_notificaciones']) && $_GET['debug_notificaciones'] === '1') {
+            var_dump($notificaciones);
+            exit;
+        }
     }
 } catch (Throwable $e) {
     $errorActividad = 'No se ha podido cargar la actividad reciente.';
+    error_log('[DASHBOARD] Error cargando notificaciones o actividad: ' . $e->getMessage());
 }
 
 renderAppLayoutStart(
@@ -74,6 +105,10 @@ renderAppLayoutStart(
 );
 ?>
 <section class="panel panel-card">
+    <?php if ($mensajeSistema !== ''): ?>
+        <div class="alert <?= $mensajeSistemaOk ? 'alert-success' : 'alert-danger' ?>"><?= htmlspecialchars($mensajeSistema, ENT_QUOTES, 'UTF-8') ?></div>
+    <?php endif; ?>
+
     <div class="row g-3">
         <div class="col-12 col-xl-7">
             <div class="card h-100 border-0 shadow-sm">
@@ -92,20 +127,62 @@ renderAppLayoutStart(
                 <div class="card-body">
                     <p class="eyebrow">Acciones rapidas</p>
                     <div class="d-grid gap-2">
-                        <a class="btn btn-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/cambiar_password.php">Cambiar contrasena</a>
+                        <a class="btn btn-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/cambiar_password.php">Cambiar contraseña</a>
                         <?php if (puedeGestionarUsuarios()): ?>
                             <a class="btn btn-outline-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/usuarios.php?estado=pendiente">
                                 Solicitudes pendientes<?= $solicitudesPendientes > 0 ? ' (' . htmlspecialchars((string) $solicitudesPendientes, ENT_QUOTES, 'UTF-8') . ')' : '' ?>
                             </a>
                         <?php endif; ?>
                         <?php if (puedePrepararCampanas()): ?>
-                            <a class="btn btn-outline-dark" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/campana_nueva.php">Iniciar nueva campana</a>
+                            <button class="btn btn-outline-dark" type="button" data-bs-toggle="modal" data-bs-target="#modalIniciarCampana">Iniciar nueva campaña</button>
                         <?php endif; ?>
                         <a class="btn btn-outline-danger" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/logout.php">Cerrar sesion</a>
                     </div>
                 </div>
             </div>
         </div>
+        <?php if (usuarioEsAlmacen()): ?>
+            <div class="col-12">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <p class="eyebrow mb-1">Interno</p>
+                                <h2 class="section-title mb-0">Notificaciones</h2>
+                            </div>
+                            <span class="badge text-bg-dark"><?= htmlspecialchars((string) $notificacionesNoLeidas, ENT_QUOTES, 'UTF-8') ?> sin leer</span>
+                        </div>
+
+                        <?php if ($notificaciones === []): ?>
+                            <div class="alert alert-light border mb-0">No hay notificaciones.</div>
+                        <?php else: ?>
+                            <div class="d-flex flex-column gap-2">
+                                <?php foreach ($notificaciones as $notificacion): ?>
+                                    <div class="border rounded-3 p-3 d-flex flex-column flex-lg-row justify-content-between gap-3">
+                                        <div>
+                                            <div class="d-flex flex-wrap gap-2 mb-1">
+                                                <span class="badge <?= (int) ($notificacion['leida'] ?? 0) === 1 ? 'text-bg-secondary' : 'text-bg-primary' ?>">
+                                                    <?= (int) ($notificacion['leida'] ?? 0) === 1 ? 'Leida' : 'Nueva' ?>
+                                                </span>
+                                                <span class="text-body-secondary"><?= htmlspecialchars((string) ($notificacion['fecha'] ?? ''), ENT_QUOTES, 'UTF-8') ?></span>
+                                            </div>
+                                            <p class="mb-0"><?= htmlspecialchars((string) ($notificacion['mensaje'] ?? ''), ENT_QUOTES, 'UTF-8') ?></p>
+                                        </div>
+                                        <?php if ((int) ($notificacion['leida'] ?? 0) !== 1): ?>
+                                            <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/dashboard.php">
+                                                <input type="hidden" name="accion" value="marcar_notificacion_leida">
+                                                <input type="hidden" name="notificacion_id" value="<?= htmlspecialchars((string) ($notificacion['id'] ?? 0), ENT_QUOTES, 'UTF-8') ?>">
+                                                <button class="btn btn-sm btn-outline-secondary" type="submit">Marcar leída</button>
+                                            </form>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        <?php endif; ?>
         <div class="col-12">
             <div class="card border-0 shadow-sm">
                 <div class="card-body">
@@ -172,4 +249,27 @@ renderAppLayoutStart(
         </div>
     </div>
 </section>
+<?php if (puedePrepararCampanas()): ?>
+    <div class="modal fade" id="modalIniciarCampana" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/campana_nueva.php">
+                    <div class="modal-header">
+                        <h2 class="modal-title fs-5">Iniciar nueva campaña</h2>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>Esto eliminará todos los datos del sistema. Introduce tu contraseña para confirmar.</p>
+                        <label class="form-label" for="password_actual">Contraseña</label>
+                        <input class="form-control" id="password_actual" name="password_actual" type="password" required>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-danger">Confirmar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+<?php endif; ?>
 <?php renderAppLayoutEnd(); ?>

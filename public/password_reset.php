@@ -30,15 +30,15 @@ try {
             $passwordNueva = (string) ($_POST['password_nueva'] ?? '');
             $passwordConfirmacion = (string) ($_POST['password_confirmacion'] ?? '');
             completarResetPassword($pdo, $token, $passwordNueva, $passwordConfirmacion);
-            $mensaje = 'La contrasena se ha restablecido correctamente. Ya puedes iniciar sesion.';
+            $mensaje = 'La contraseña se ha restablecido correctamente. Ya puedes iniciar sesión.';
             $resetValido = null;
         } elseif ($resetValido === null) {
-            $error = 'El enlace de recuperacion no es valido o ha caducado.';
+            $error = 'El enlace de recuperación no es válido o ha caducado.';
         }
     }
 } catch (Throwable $e) {
     $mensajeError = trim($e->getMessage());
-    $error = $mensajeError !== '' ? $mensajeError : 'No se ha podido restablecer la contrasena.';
+    $error = $mensajeError !== '' ? $mensajeError : 'No se ha podido restablecer la contraseña.';
 }
 ?>
 <!DOCTYPE html>
@@ -46,14 +46,14 @@ try {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Restablecer contrasena</title>
+    <title>Restablecer contraseña</title>
     <link rel="stylesheet" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/css/estilos.css">
 </head>
 <body class="auth-body">
     <main class="auth-main">
         <section class="auth-card" style="max-width: 520px;">
             <p class="eyebrow">Acceso</p>
-            <h1>Restablecer contrasena</h1>
+            <h1>Restablecer contraseña</h1>
             <p class="subtitulo">El enlace es temporal y solo puede utilizarse una vez.</p>
 
             <?php if ($error !== ''): ?>
@@ -73,13 +73,13 @@ try {
                 <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/password_reset.php">
                     <input type="hidden" name="token" value="<?= htmlspecialchars($token, ENT_QUOTES, 'UTF-8') ?>">
 
-                    <label for="password_nueva">Nueva contrasena</label>
+                    <label for="password_nueva">Nueva contraseña</label>
                     <input id="password_nueva" name="password_nueva" type="password" required>
 
-                    <label for="password_confirmacion">Confirmar nueva contrasena</label>
+                    <label for="password_confirmacion">Confirmar nueva contraseña</label>
                     <input id="password_confirmacion" name="password_confirmacion" type="password" required>
 
-                    <button class="btn-primary" type="submit">Guardar nueva contrasena</button>
+                    <button class="btn-primary" type="submit">Guardar nueva contraseña</button>
                 </form>
             <?php endif; ?>
         </section>

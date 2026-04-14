@@ -30,8 +30,7 @@ try {
 
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $datos = leerFormularioUsuarioDesdeRequest($_POST);
-        $usuario = crearSolicitudUsuario($pdo, $datos);
-        notificarSolicitudUsuarioPorEmail($usuario);
+        crearSolicitudUsuario($pdo, $datos);
         $mensaje = 'Tu solicitud de acceso se ha registrado correctamente. Queda pendiente de aprobacion por almacen.';
 
         $datos = [
@@ -60,7 +59,7 @@ try {
         <section class="auth-card" style="max-width: 560px;">
             <p class="eyebrow">Nueva cuenta</p>
             <h1>Solicitar acceso</h1>
-            <p class="subtitulo">Tu cuenta quedara pendiente de aprobacion por almacen. Si el entorno de correo esta operativo, el sistema enviara ademas un aviso a almacen@maximosl.com.</p>
+            <p class="subtitulo">Tu cuenta quedará pendiente de aprobación por almacén.</p>
 
             <?php if ($error !== ''): ?>
                 <p class="error"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></p>
@@ -91,11 +90,11 @@ try {
                     </select>
                 </div>
                 <div class="col-12 col-md-6">
-                    <label for="password">Contrasena</label>
+                    <label for="password">Contraseña</label>
                     <input id="password" name="password" type="password" required>
                 </div>
                 <div class="col-12 col-md-6">
-                    <label for="password_confirmacion">Confirmar contrasena</label>
+                    <label for="password_confirmacion">Confirmar contraseña</label>
                     <input id="password_confirmacion" name="password_confirmacion" type="password" required>
                 </div>
                 <div class="col-12 d-flex flex-wrap gap-2">
