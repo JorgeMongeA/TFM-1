@@ -20,6 +20,12 @@ $roles = [];
 $error = '';
 $mensaje = '';
 $solicitudesPendientes = 0;
+$debugUsuarios = [
+    'total_usuarios' => 0,
+    'total_pendientes' => 0,
+    'pendientes_sql' => '',
+    'ultima_fila' => null,
+];
 $flash = $_SESSION['flash_usuarios'] ?? null;
 unset($_SESSION['flash_usuarios']);
 
@@ -31,6 +37,7 @@ try {
     $pdo = conectar();
     $roles = rolesAsignablesUsuarios($pdo);
     $solicitudesPendientes = contarUsuariosPendientes($pdo);
+    $debugUsuarios = diagnosticoSolicitudesUsuarios($pdo);
 
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $accion = trim((string) ($_POST['accion'] ?? ''));
@@ -79,6 +86,22 @@ renderAppLayoutStart(
 
     <div class="alert alert-info">
         Las solicitudes de alta pendientes llegan a esta pantalla y se gestionan aqui por almacen. Pendientes actuales: <?= htmlspecialchars((string) $solicitudesPendientes, ENT_QUOTES, 'UTF-8') ?>.
+    </div>
+
+    <div class="alert alert-warning">
+        Diagnostico temporal:
+        total usuarios = <?= htmlspecialchars((string) ($debugUsuarios['total_usuarios'] ?? 0), ENT_QUOTES, 'UTF-8') ?>,
+        total pendientes detectados = <?= htmlspecialchars((string) ($debugUsuarios['total_pendientes'] ?? 0), ENT_QUOTES, 'UTF-8') ?>,
+        SQL pendientes = <?= htmlspecialchars((string) ($debugUsuarios['pendientes_sql'] ?? ''), ENT_QUOTES, 'UTF-8') ?>.
+        <?php if (is_array($debugUsuarios['ultima_fila'] ?? null)): ?>
+            Ultima fila creada:
+            username=<?= htmlspecialchars((string) (($debugUsuarios['ultima_fila']['username'] ?? '') !== '' ? $debugUsuarios['ultima_fila']['username'] : '-'), ENT_QUOTES, 'UTF-8') ?>,
+            email=<?= htmlspecialchars((string) (($debugUsuarios['ultima_fila']['email'] ?? '') !== '' ? $debugUsuarios['ultima_fila']['email'] : '-'), ENT_QUOTES, 'UTF-8') ?>,
+            activo=<?= htmlspecialchars((string) ($debugUsuarios['ultima_fila']['activo'] ?? ''), ENT_QUOTES, 'UTF-8') ?>,
+            aprobado=<?= htmlspecialchars((string) ($debugUsuarios['ultima_fila']['aprobado'] ?? ''), ENT_QUOTES, 'UTF-8') ?>,
+            rechazado=<?= htmlspecialchars((string) ($debugUsuarios['ultima_fila']['rechazado'] ?? ''), ENT_QUOTES, 'UTF-8') ?>,
+            rol_id=<?= htmlspecialchars((string) ($debugUsuarios['ultima_fila']['rol_id'] ?? ''), ENT_QUOTES, 'UTF-8') ?>.
+        <?php endif; ?>
     </div>
 
     <div class="card border-0 shadow-sm mb-4">
@@ -154,7 +177,7 @@ renderAppLayoutStart(
                                     <td><?= htmlspecialchars((string) (($usuario['fecha_aprobacion'] ?? '') !== '' ? $usuario['fecha_aprobacion'] : '-'), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td><?= htmlspecialchars((string) (($usuario['creado_en'] ?? '') !== '' ? $usuario['creado_en'] : '-'), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td>
-                                        <?php if ((int) ($usuario['aprobado'] ?? 0) !== 1): ?>
+                                        <?php if (usuarioEstaPendiente($usuario)): ?>
                                             <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/usuarios.php" class="d-flex flex-column gap-2">
                                                 <input type="hidden" name="accion" value="aprobar">
                                                 <input type="hidden" name="usuario_id" value="<?= htmlspecialchars((string) ($usuario['id'] ?? 0), ENT_QUOTES, 'UTF-8') ?>">

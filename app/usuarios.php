@@ -148,6 +148,16 @@ function diagnosticoSolicitudesUsuarios(PDO $pdo): array
     ];
 }
 
+function usuarioEstaPendiente(array $usuario): bool
+{
+    if ((int) ($usuario['rechazado'] ?? 0) === 1) {
+        return false;
+    }
+
+    return (int) ($usuario['aprobado'] ?? 0) === 0
+        && (int) ($usuario['activo'] ?? 0) === 0;
+}
+
 function rolesFuncionalesUsuarios(): array
 {
     return [
@@ -426,11 +436,11 @@ function estadoGestionUsuario(array $usuario): string
         return USUARIO_ESTADO_RECHAZADO;
     }
 
-    if ((int) ($usuario['aprobado'] ?? 0) !== 1) {
+    if (usuarioEstaPendiente($usuario)) {
         return USUARIO_ESTADO_PENDIENTE;
     }
 
-    return (int) ($usuario['activo'] ?? 0) === 1
+    return (int) ($usuario['activo'] ?? 0) === 1 && (int) ($usuario['aprobado'] ?? 0) === 1
         ? USUARIO_ESTADO_ACTIVO
         : USUARIO_ESTADO_DESACTIVADO;
 }
@@ -457,6 +467,20 @@ function etiquetaEstadoGestionUsuario(string $estado): string
 
 function validarDatosNuevoUsuario(PDO $pdo, array $datos): array
 {
+    $diagnostico = diagnosticoValidacionNuevoUsuario($pdo, $datos);
+    $errores = $diagnostico['errores'];
+
+    if ($errores !== []) {
+        error_log('[USUARIOS] validacion alta bloqueada => ' . json_encode([
+            'username' => trim((string) ($datos['username'] ?? '')),
+            'email' => trim((string) ($datos['email'] ?? '')),
+            'rol_id' => (int) ($datos['rol_id'] ?? 0),
+            'errores' => $errores,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    return $errores;
+
     if (!usuariosSoportanGestion($pdo)) {
         return ['La gestion avanzada de usuarios no esta disponible hasta aplicar la migracion de base de datos.'];
     }
