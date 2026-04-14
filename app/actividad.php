@@ -9,6 +9,7 @@ const ACTIVIDAD_TIPO_PEDIDO_ESTADO = 'pedido_estado';
 const ACTIVIDAD_TIPO_ALBARAN_CONFIRMADO = 'albaran_confirmado';
 const ACTIVIDAD_TIPO_SYNC_HISTORICO = 'sync_historico';
 const ACTIVIDAD_TIPO_INVENTARIO_ANULADO = 'inventario_anulado';
+const ACTIVIDAD_TIPO_INVENTARIO_PDF = 'inventario_pdf';
 
 const PEDIDO_EVENTO_CREADO = 'pedido_creado';
 const PEDIDO_EVENTO_CAMBIO_ESTADO = 'pedido_estado';
@@ -180,6 +181,9 @@ function actividadBadge(string $tipoEvento): string
         ACTIVIDAD_TIPO_ALBARAN_CONFIRMADO => 'text-bg-success',
         ACTIVIDAD_TIPO_SYNC_HISTORICO => 'text-bg-warning',
         ACTIVIDAD_TIPO_INVENTARIO_ANULADO => 'text-bg-dark',
+        ACTIVIDAD_TIPO_INVENTARIO_PDF => 'text-bg-secondary',
+        'usuario_creado', 'usuario_aprobado', 'usuario_activado', 'usuario_desactivado', 'usuario_rol' => 'text-bg-primary',
+        'password_reset_requested', 'password_reset_completed' => 'text-bg-secondary',
         default => 'text-bg-secondary',
     };
 }
@@ -192,6 +196,9 @@ function actividadEtiqueta(string $tipoEvento): string
         ACTIVIDAD_TIPO_ALBARAN_CONFIRMADO => 'Albaran',
         ACTIVIDAD_TIPO_SYNC_HISTORICO => 'Sync',
         ACTIVIDAD_TIPO_INVENTARIO_ANULADO => 'Anulacion',
+        ACTIVIDAD_TIPO_INVENTARIO_PDF => 'PDF',
+        'usuario_creado', 'usuario_aprobado', 'usuario_activado', 'usuario_desactivado', 'usuario_rol' => 'Usuario',
+        'password_reset_requested', 'password_reset_completed' => 'Acceso',
         default => 'Sistema',
     };
 }
@@ -204,6 +211,9 @@ function actividadIcono(string $tipoEvento): string
         ACTIVIDAD_TIPO_ALBARAN_CONFIRMADO => 'A',
         ACTIVIDAD_TIPO_SYNC_HISTORICO => 'S',
         ACTIVIDAD_TIPO_INVENTARIO_ANULADO => 'X',
+        ACTIVIDAD_TIPO_INVENTARIO_PDF => 'PDF',
+        'usuario_creado', 'usuario_aprobado', 'usuario_activado', 'usuario_desactivado', 'usuario_rol' => 'U',
+        'password_reset_requested', 'password_reset_completed' => 'R',
         default => '•',
     };
 }

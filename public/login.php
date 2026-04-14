@@ -13,6 +13,7 @@ if (isset($_SESSION['user_id'])) {
 }
 
 $error = '';
+
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     $username = trim((string) ($_POST['username'] ?? $_POST['usuario'] ?? ''));
     $password = (string) ($_POST['password'] ?? $_POST['contrasena'] ?? '');
@@ -23,9 +24,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             exit;
         }
 
-        $error = 'Usuario o contraseña incorrectos';
+        $error = 'Usuario o contrasena incorrectos.';
     } catch (RuntimeException $e) {
-        $error = 'Usuario o contraseña incorrectos';
+        $mensajeError = trim($e->getMessage());
+        $error = $mensajeError !== '' ? $mensajeError : 'Usuario o contrasena incorrectos.';
     }
 }
 ?>
@@ -41,7 +43,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     <main class="auth-main">
         <section class="auth-card">
             <h1>Acceso a CONGREGACIONES</h1>
-            <p class="subtitulo">Sistema de gestión de inventario y operaciones</p>
+            <p class="subtitulo">Sistema de gestion de inventario y operaciones</p>
 
             <?php if ($error !== ''): ?>
                 <p class="error"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></p>
@@ -57,11 +59,19 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     value="<?= htmlspecialchars((string) ($_POST['username'] ?? $_POST['usuario'] ?? ''), ENT_QUOTES, 'UTF-8') ?>"
                 >
 
-                <label for="password">Contraseña</label>
+                <label for="password">Contrasena</label>
                 <input id="password" name="password" type="password" required>
 
                 <button class="btn-primary" type="submit">Entrar</button>
             </form>
+
+            <div class="mt-3">
+                <a href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/password_forgot.php">Has olvidado tu contrasena?</a>
+            </div>
+
+            <div class="mt-2">
+                <a href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/usuario_nuevo.php">Solicitar una nueva cuenta</a>
+            </div>
         </section>
     </main>
 </body>

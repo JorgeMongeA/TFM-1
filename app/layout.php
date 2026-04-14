@@ -76,6 +76,12 @@ function menuLateral(): array
             'permission' => PERMISO_PEDIDOS,
         ],
         [
+            'label' => 'Usuarios',
+            'href' => BASE_URL . '/usuarios.php',
+            'key' => 'usuarios',
+            'permission' => PERMISO_USUARIOS,
+        ],
+        [
             'label' => 'Centros',
             'key' => 'centros',
             'children' => [

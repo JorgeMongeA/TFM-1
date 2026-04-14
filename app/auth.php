@@ -19,6 +19,7 @@ const PERMISO_CENTROS_CONSULTA = 'centros_consulta';
 const PERMISO_CENTROS_EDICION = 'centros_edicion';
 const PERMISO_PEDIDOS = 'pedidos';
 const PERMISO_CAMBIAR_PASSWORD = 'cambiar_password';
+const PERMISO_USUARIOS = 'usuarios';
 
 function aliasesRolesAplicacion(): array
 {
@@ -61,6 +62,7 @@ function permisosPorRol(): array
             PERMISO_CENTROS_EDICION,
             PERMISO_PEDIDOS,
             PERMISO_CAMBIAR_PASSWORD,
+            PERMISO_USUARIOS,
         ],
         ROL_EDELVIVES => [
             PERMISO_DASHBOARD,
@@ -111,8 +113,13 @@ function login(string $username, string $password): bool
     }
 
     $pdo = conectar();
+    $columnasExtras = '';
+    if (usuariosSoportanControlAcceso($pdo)) {
+        $columnasExtras = ', u.activo, u.aprobado';
+    }
+
     $stmt = $pdo->prepare(
-        'SELECT u.id, u.username, u.password, u.rol_id, r.nombre AS rol_nombre
+        'SELECT u.id, u.username, u.password, u.rol_id' . $columnasExtras . ', r.nombre AS rol_nombre
          FROM usuarios u
          LEFT JOIN roles r ON r.id = u.rol_id
          WHERE u.username = :username
@@ -128,6 +135,14 @@ function login(string $username, string $password): bool
     $passwordPersistida = (string) ($user['password'] ?? '');
     if (!validarPasswordLogin($password, $passwordPersistida)) {
         return false;
+    }
+
+    if ((int) ($user['aprobado'] ?? 1) !== 1) {
+        throw new RuntimeException('Tu cuenta esta pendiente de aprobacion.');
+    }
+
+    if ((int) ($user['activo'] ?? 1) !== 1) {
+        throw new RuntimeException('Tu cuenta esta desactivada.');
     }
 
     $rol = normalizarRolAplicacion((string) ($user['rol_nombre'] ?? ''));
@@ -278,6 +293,11 @@ function puedeCambiarPassword(): bool
     return usuarioTienePermiso(PERMISO_CAMBIAR_PASSWORD);
 }
 
+function puedeGestionarUsuarios(): bool
+{
+    return usuarioTienePermiso(PERMISO_USUARIOS) && usuarioEsAlmacen();
+}
+
 function urlInicioSegunPermisos(): string
 {
     if (puedeVerDashboard()) {
@@ -383,4 +403,28 @@ function logout(): void
     session_destroy();
     header('Location: ' . BASE_URL . '/login.php');
     exit;
+}
+
+function usuariosSoportanControlAcceso(PDO $pdo): bool
+{
+    static $cache = null;
+
+    if (is_bool($cache)) {
+        return $cache;
+    }
+
+    try {
+        $stmt = $pdo->query('SHOW COLUMNS FROM usuarios');
+        $columnas = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+        if (!is_array($columnas)) {
+            $cache = false;
+            return $cache;
+        }
+
+        $cache = in_array('activo', $columnas, true) && in_array('aprobado', $columnas, true);
+        return $cache;
+    } catch (Throwable $e) {
+        $cache = false;
+        return $cache;
+    }
 }

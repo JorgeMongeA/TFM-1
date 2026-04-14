@@ -233,10 +233,35 @@ function consultarInventarioPorId(PDO $pdo, int $id): ?array
         return null;
     }
 
+    $columnas = [
+        'id',
+        'editorial',
+        'colegio',
+        'codigo_centro',
+        'ubicacion',
+        'fecha_entrada',
+        'fecha_salida',
+        'bultos',
+        'destino',
+        '`orden`',
+        'indicador_completa',
+        'estado',
+        'fecha_confirmacion_salida',
+        'usuario_confirmacion',
+        'numero_albaran',
+        'sync_pendiente_historico',
+        'fecha_sync_historico',
+    ];
+
+    if (inventarioSoportaAnulacion($pdo)) {
+        $columnas[] = 'usuario_anulacion_id';
+        $columnas[] = 'usuario_anulacion';
+        $columnas[] = 'fecha_anulacion';
+        $columnas[] = 'motivo_anulacion';
+    }
+
     $stmt = $pdo->prepare(
-        'SELECT id, editorial, colegio, codigo_centro, ubicacion, fecha_entrada, fecha_salida, bultos, destino, `orden`,
-                indicador_completa, estado, fecha_confirmacion_salida, usuario_confirmacion, numero_albaran,
-                sync_pendiente_historico, fecha_sync_historico, usuario_anulacion_id, usuario_anulacion, fecha_anulacion, motivo_anulacion
+        'SELECT ' . implode(', ', $columnas) . '
          FROM inventario
          WHERE id = :id
          LIMIT 1'
@@ -370,6 +395,10 @@ function anularEntradaInventario(PDO $pdo, int $inventarioId, array $usuario, st
         throw new RuntimeException('La entrada indicada no es valida.');
     }
 
+    if (!inventarioSoportaAnulacion($pdo)) {
+        throw new RuntimeException('La anulacion de stock no esta disponible hasta aplicar la migracion de base de datos en produccion.');
+    }
+
     if ($motivo === '' || strlen($motivo) < 8) {
         throw new RuntimeException('Indica un motivo de anulacion claro para dejar trazabilidad.');
     }
@@ -474,4 +503,42 @@ function normalizarEstadoInventario(string $estado): string
         INVENTARIO_ESTADO_ANULADO => INVENTARIO_ESTADO_ANULADO,
         default => INVENTARIO_ESTADO_ACTIVO,
     };
+}
+
+function inventarioSoportaAnulacion(PDO $pdo): bool
+{
+    static $cache = null;
+
+    if (is_bool($cache)) {
+        return $cache;
+    }
+
+    $columnasNecesarias = [
+        'usuario_anulacion_id',
+        'usuario_anulacion',
+        'fecha_anulacion',
+        'motivo_anulacion',
+    ];
+
+    try {
+        $stmt = $pdo->query('SHOW COLUMNS FROM inventario');
+        $columnas = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+        if (!is_array($columnas)) {
+            $cache = false;
+            return $cache;
+        }
+
+        foreach ($columnasNecesarias as $columna) {
+            if (!in_array($columna, $columnas, true)) {
+                $cache = false;
+                return $cache;
+            }
+        }
+
+        $cache = true;
+        return $cache;
+    } catch (Throwable $e) {
+        $cache = false;
+        return $cache;
+    }
 }

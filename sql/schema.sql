@@ -6,9 +6,19 @@ CREATE TABLE roles (
 CREATE TABLE usuarios (
     id INT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(100) NOT NULL UNIQUE,
+    email VARCHAR(150) NULL,
     password VARCHAR(255) NOT NULL,
     rol_id INT NOT NULL,
-    FOREIGN KEY (rol_id) REFERENCES roles(id)
+    activo TINYINT(1) NOT NULL DEFAULT 1,
+    aprobado TINYINT(1) NOT NULL DEFAULT 1,
+    aprobado_por_id INT NULL,
+    fecha_aprobacion DATETIME NULL,
+    creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (rol_id) REFERENCES roles(id),
+    UNIQUE KEY uq_usuarios_email (email),
+    INDEX idx_usuarios_estado (aprobado, activo),
+    INDEX idx_usuarios_aprobado_por (aprobado_por_id)
 );
 
 INSERT INTO roles (nombre) VALUES
@@ -163,5 +173,21 @@ CREATE TABLE pedido_eventos (
     INDEX idx_pedido_eventos_tipo (tipo_evento),
     CONSTRAINT fk_pedido_eventos_pedido
         FOREIGN KEY (pedido_id) REFERENCES pedidos(id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE password_resets (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id INT NOT NULL,
+    email VARCHAR(150) NOT NULL,
+    token_hash CHAR(64) NOT NULL,
+    expira_en DATETIME NOT NULL,
+    usado_en DATETIME NULL,
+    creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_password_resets_token_hash (token_hash),
+    INDEX idx_password_resets_usuario (usuario_id),
+    INDEX idx_password_resets_expira (expira_en),
+    CONSTRAINT fk_password_resets_usuario
+        FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
         ON DELETE CASCADE
 );

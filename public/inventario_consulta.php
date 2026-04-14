@@ -155,6 +155,7 @@ renderAppLayoutStart(
                     <div class="col-12 d-flex flex-wrap gap-2">
                         <button class="btn btn-primary mt-0" type="submit">Filtrar</button>
                         <a class="btn btn-outline-secondary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/inventario_consulta.php">Limpiar filtros</a>
+                        <a class="btn btn-outline-dark" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/inventario_pdf.php?<?= htmlspecialchars(http_build_query(array_merge($filtros, ['ordenar' => $ordenar, 'direccion' => $direccion])), ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener">Imprimir stock PDF</a>
                     </div>
                 </form>
             </div>
