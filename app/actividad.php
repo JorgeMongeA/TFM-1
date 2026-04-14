@@ -8,6 +8,7 @@ const ACTIVIDAD_TIPO_PEDIDO_CREADO = 'pedido_creado';
 const ACTIVIDAD_TIPO_PEDIDO_ESTADO = 'pedido_estado';
 const ACTIVIDAD_TIPO_ALBARAN_CONFIRMADO = 'albaran_confirmado';
 const ACTIVIDAD_TIPO_SYNC_HISTORICO = 'sync_historico';
+const ACTIVIDAD_TIPO_INVENTARIO_ANULADO = 'inventario_anulado';
 
 const PEDIDO_EVENTO_CREADO = 'pedido_creado';
 const PEDIDO_EVENTO_CAMBIO_ESTADO = 'pedido_estado';
@@ -178,6 +179,7 @@ function actividadBadge(string $tipoEvento): string
         ACTIVIDAD_TIPO_PEDIDO_ESTADO => 'text-bg-info',
         ACTIVIDAD_TIPO_ALBARAN_CONFIRMADO => 'text-bg-success',
         ACTIVIDAD_TIPO_SYNC_HISTORICO => 'text-bg-warning',
+        ACTIVIDAD_TIPO_INVENTARIO_ANULADO => 'text-bg-dark',
         default => 'text-bg-secondary',
     };
 }
@@ -189,6 +191,7 @@ function actividadEtiqueta(string $tipoEvento): string
         ACTIVIDAD_TIPO_PEDIDO_ESTADO => 'Estado',
         ACTIVIDAD_TIPO_ALBARAN_CONFIRMADO => 'Albaran',
         ACTIVIDAD_TIPO_SYNC_HISTORICO => 'Sync',
+        ACTIVIDAD_TIPO_INVENTARIO_ANULADO => 'Anulacion',
         default => 'Sistema',
     };
 }
@@ -200,6 +203,7 @@ function actividadIcono(string $tipoEvento): string
         ACTIVIDAD_TIPO_PEDIDO_ESTADO => 'E',
         ACTIVIDAD_TIPO_ALBARAN_CONFIRMADO => 'A',
         ACTIVIDAD_TIPO_SYNC_HISTORICO => 'S',
+        ACTIVIDAD_TIPO_INVENTARIO_ANULADO => 'X',
         default => '•',
     };
 }

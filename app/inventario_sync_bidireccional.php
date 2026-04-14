@@ -415,6 +415,20 @@ function sincronizarInventarioBidireccional(PDO $pdo, string $scriptUrl, string 
     ];
 }
 
+function sincronizarInventarioSheetsDesdeSql(PDO $pdo, string $scriptUrl, string $token): array
+{
+    $sqlRows = obtenerInventarioSql($pdo);
+    $respuesta = llamarAppsScriptInventario($scriptUrl, $token, 'replace_inventory_rows', $sqlRows);
+    $replaced = $respuesta['replaced'] ?? count($sqlRows);
+
+    return [
+        'total_sql' => count($sqlRows),
+        'reemplazados_en_sheet' => is_numeric($replaced) ? (int) $replaced : count($sqlRows),
+        'respuesta_replace_inventory_rows' => $respuesta,
+        'errores' => [],
+    ];
+}
+
 function extraerFilasInventarioDesdeAppsScript(array $respuesta): array
 {
     $filas = $respuesta['payload'] ?? $respuesta['rows'] ?? [];

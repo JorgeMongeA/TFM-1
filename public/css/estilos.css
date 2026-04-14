@@ -388,6 +388,11 @@ select:focus {
     color: #946200;
 }
 
+.activity-icon--inventario_anulado {
+    background: #fcebec;
+    color: #8c2f39;
+}
+
 .activity-content {
     min-width: 0;
 }

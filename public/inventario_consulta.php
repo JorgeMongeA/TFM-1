@@ -12,29 +12,101 @@ require_once dirname(__DIR__) . '/app/inventario_sync_bidireccional.php';
 require_login();
 requierePermiso(PERMISO_INVENTARIO_CONSULTA);
 
+function tokenAnulacionInventario(): string
+{
+    iniciar_sesion();
+
+    if (!isset($_SESSION['inventario_anulacion_token']) || !is_string($_SESSION['inventario_anulacion_token'])) {
+        $_SESSION['inventario_anulacion_token'] = bin2hex(random_bytes(32));
+    }
+
+    return $_SESSION['inventario_anulacion_token'];
+}
+
+function validarTokenAnulacionInventario(string $token): bool
+{
+    iniciar_sesion();
+    $tokenSesion = $_SESSION['inventario_anulacion_token'] ?? '';
+
+    return is_string($tokenSesion) && $tokenSesion !== '' && hash_equals($tokenSesion, $token);
+}
+
 $filtros = leerFiltrosInventarioDesdeRequest($_GET);
 [$ordenar, $direccion] = leerOrdenInventarioDesdeRequest($_GET);
 $registros = [];
 $errorCarga = '';
 $resultadoSincronizacion = null;
-$resultadoBidireccional = null;
+$resultadoReflejoSheets = null;
+$flashInventario = $_SESSION['flash_inventario'] ?? null;
 $flashSyncHistorico = $_SESSION['flash_sync_historico'] ?? null;
-unset($_SESSION['flash_sync_historico']);
+unset($_SESSION['flash_inventario'], $_SESSION['flash_sync_historico']);
+
+$mensajeInventario = '';
+$tipoMensajeInventario = 'success';
 $columnasTabla = columnasInventarioTabla();
+$csrfAnulacion = tokenAnulacionInventario();
+
+if (is_array($flashInventario)) {
+    $mensajeInventario = trim((string) ($flashInventario['mensaje'] ?? ''));
+    $tipoMensajeInventario = trim((string) ($flashInventario['tipo'] ?? 'success'));
+
+    if (!in_array($tipoMensajeInventario, ['success', 'warning', 'danger'], true)) {
+        $tipoMensajeInventario = 'success';
+    }
+}
 
 try {
     $pdo = conectar();
 
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-        requierePermiso(PERMISO_SINCRONIZACIONES, 'No tienes permisos para sincronizar inventario.');
-        $config = cargarConfiguracion();
+        $accionInventario = trim((string) ($_POST['accion'] ?? ''));
         $accionSincronizacion = trim((string) ($_POST['sync_action'] ?? 'csv'));
 
-        if ($accionSincronizacion === 'bidireccional') {
+        if ($accionInventario === 'anular_inventario') {
+            requierePermiso(PERMISO_INVENTARIO_EDICION, 'No tienes permisos para anular entradas de inventario.');
+
+            $token = trim((string) ($_POST['csrf_token'] ?? ''));
+            if (!validarTokenAnulacionInventario($token)) {
+                throw new RuntimeException('La sesion de anulacion ha caducado. Vuelve a intentarlo.');
+            }
+
+            $inventarioId = (int) ($_POST['inventario_id'] ?? 0);
+            $motivoAnulacion = trim((string) ($_POST['motivo_anulacion'] ?? ''));
+            anularEntradaInventario($pdo, $inventarioId, obtenerContextoActividadActual(), $motivoAnulacion);
+
+            $mensajeFlash = 'Entrada ID ' . $inventarioId . ' anulada correctamente y retirada del inventario activo.';
+            $tipoFlash = 'success';
+
+            try {
+                $config = cargarConfiguracion();
+                $scriptUrl = obtenerUrlWebAppGoogleSheets($config);
+                $tokenSheets = obtenerTokenSyncGoogleSheets();
+                sincronizarInventarioSheetsDesdeSql($pdo, $scriptUrl, $tokenSheets);
+                $mensajeFlash .= ' Google Sheets se ha actualizado con el inventario vigente.';
+            } catch (Throwable $syncError) {
+                error_log('[GOOGLE_SYNC] inventario_consulta.php anulacion | ' . $syncError->getMessage());
+                $tipoFlash = 'warning';
+                $mensajeFlash .= ' La anulacion queda guardada en la app, pero la replica en Google Sheets esta pendiente.';
+            }
+
+            $_SESSION['flash_inventario'] = [
+                'tipo' => $tipoFlash,
+                'mensaje' => $mensajeFlash,
+            ];
+
+            $returnQuery = trim((string) ($_POST['return_query'] ?? ''));
+            $urlRedireccion = BASE_URL . '/inventario_consulta.php' . ($returnQuery !== '' ? '?' . $returnQuery : '');
+            header('Location: ' . $urlRedireccion);
+            exit;
+        }
+
+        requierePermiso(PERMISO_SINCRONIZACIONES, 'No tienes permisos para sincronizar inventario.');
+        $config = cargarConfiguracion();
+
+        if ($accionSincronizacion === 'sql_to_sheet') {
             $scriptUrl = obtenerUrlWebAppGoogleSheets($config);
             $token = obtenerTokenSyncGoogleSheets();
-
-            $resultadoBidireccional = sincronizarInventarioBidireccional($pdo, $scriptUrl, $token);
+            $resultadoReflejoSheets = sincronizarInventarioSheetsDesdeSql($pdo, $scriptUrl, $token);
         } else {
             $csvUrl = trim((string) ($config['inventario_csv_url'] ?? ''));
             if ($csvUrl === '') {
@@ -56,7 +128,7 @@ renderAppLayoutStart(
     'Inventario - Consulta',
     'inventario_consulta',
     'Inventario - Consulta',
-    'Consulta de stock actual con filtros y sincronización conservadora con Google Sheets'
+    'Consulta de stock actual con anulacion controlada y reflejo hacia Google Sheets'
 );
 ?>
 <section class="panel panel-card">
@@ -73,7 +145,7 @@ renderAppLayoutStart(
                         <input class="form-control" id="colegio" name="colegio" type="text" value="<?= htmlspecialchars($filtros['colegio'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="col-12 col-md-6 col-xl-3">
-                        <label class="form-label" for="codigo_centro">Código centro</label>
+                        <label class="form-label" for="codigo_centro">Codigo centro</label>
                         <input class="form-control" id="codigo_centro" name="codigo_centro" type="text" value="<?= htmlspecialchars($filtros['codigo_centro'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="col-12 col-md-6 col-xl-3">
@@ -90,15 +162,15 @@ renderAppLayoutStart(
         <?php if (puedeSincronizar()): ?>
         <div class="card border-0 shadow-sm sync-card">
             <div class="card-body">
-                <p class="eyebrow">Sincronización</p>
+                <p class="eyebrow">Sincronizacion</p>
                 <div class="d-grid gap-2">
                     <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/inventario_consulta.php">
                         <input type="hidden" name="sync_action" value="csv">
                         <button class="btn btn-primary mt-0 w-100" type="submit">Sincronizar desde Google Sheets</button>
                     </form>
                     <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/inventario_consulta.php">
-                        <input type="hidden" name="sync_action" value="bidireccional">
-                        <button class="btn btn-outline-primary w-100" type="submit">Sincronizar bidireccional</button>
+                        <input type="hidden" name="sync_action" value="sql_to_sheet">
+                        <button class="btn btn-outline-primary w-100" type="submit">Reflejar inventario en Google Sheets</button>
                     </form>
                     <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/sync_historico.php">
                         <button class="btn btn-outline-success w-100" type="submit">Sincronizar historico con Google Sheets</button>
@@ -111,6 +183,10 @@ renderAppLayoutStart(
 
     <?php if ($errorCarga !== ''): ?>
         <div class="alert alert-danger"><?= htmlspecialchars($errorCarga, ENT_QUOTES, 'UTF-8') ?></div>
+    <?php endif; ?>
+
+    <?php if ($mensajeInventario !== ''): ?>
+        <div class="alert alert-<?= htmlspecialchars($tipoMensajeInventario, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($mensajeInventario, ENT_QUOTES, 'UTF-8') ?></div>
     <?php endif; ?>
 
     <?php if (is_array($flashSyncHistorico)): ?>
@@ -136,9 +212,9 @@ renderAppLayoutStart(
     <?php if ($resultadoSincronizacion !== null): ?>
         <div class="card border-0 shadow-sm mb-4">
             <div class="card-body">
-                <p class="eyebrow">Resultado de sincronización CSV</p>
+                <p class="eyebrow">Resultado de sincronizacion CSV</p>
                 <div class="row g-3 mb-3">
-                    <div class="col-6 col-xl-3"><strong>Total leídos:</strong> <?= htmlspecialchars((string) $resultadoSincronizacion['total_leidos'], ENT_QUOTES, 'UTF-8') ?></div>
+                    <div class="col-6 col-xl-3"><strong>Total leidos:</strong> <?= htmlspecialchars((string) $resultadoSincronizacion['total_leidos'], ENT_QUOTES, 'UTF-8') ?></div>
                     <div class="col-6 col-xl-3"><strong>Insertados:</strong> <?= htmlspecialchars((string) $resultadoSincronizacion['insertados'], ENT_QUOTES, 'UTF-8') ?></div>
                     <div class="col-6 col-xl-3"><strong>Actualizados:</strong> <?= htmlspecialchars((string) $resultadoSincronizacion['actualizados'], ENT_QUOTES, 'UTF-8') ?></div>
                     <div class="col-6 col-xl-3"><strong>Ignorados:</strong> <?= htmlspecialchars((string) $resultadoSincronizacion['ignorados'], ENT_QUOTES, 'UTF-8') ?></div>
@@ -154,126 +230,16 @@ renderAppLayoutStart(
         </div>
     <?php endif; ?>
 
-    <?php if ($resultadoBidireccional !== null): ?>
+    <?php if ($resultadoReflejoSheets !== null): ?>
         <div class="card border-0 shadow-sm mb-4">
             <div class="card-body">
-                <p class="eyebrow">Resultado de sincronización bidireccional</p>
-                <?php
-                $hayCambiosBidireccional =
-                    (int) ($resultadoBidireccional['insertados_en_sql'] ?? 0) > 0
-                    || (int) ($resultadoBidireccional['insertados_en_sheet'] ?? 0) > 0
-                    || (int) ($resultadoBidireccional['actualizados_en_sql'] ?? 0) > 0;
-                ?>
-                <div class="alert <?= $hayCambiosBidireccional ? 'alert-success' : 'alert-light border' ?> mb-3">
-                    <?php if ($hayCambiosBidireccional): ?>
-                        Inventario sincronizado correctamente. Se han aplicado inserciones o actualizaciones.
-                    <?php else: ?>
-                        Inventario sincronizado correctamente. No hay cambios.
-                    <?php endif; ?>
+                <p class="eyebrow">Resultado de sincronizacion SQL -> Google Sheets</p>
+                <div class="alert alert-success mb-3">
+                    Google Sheets refleja ahora exactamente el inventario activo de la aplicacion.
                 </div>
-                <div class="row g-3 mb-3">
-                    <div class="col-6 col-xl-2"><strong>Total en SQL:</strong> <?= htmlspecialchars((string) $resultadoBidireccional['total_sql'], ENT_QUOTES, 'UTF-8') ?></div>
-                    <div class="col-6 col-xl-2"><strong>Total en Sheets:</strong> <?= htmlspecialchars((string) $resultadoBidireccional['total_sheet'], ENT_QUOTES, 'UTF-8') ?></div>
-                    <div class="col-6 col-xl-3"><strong>Insertados en SQL:</strong> <?= htmlspecialchars((string) $resultadoBidireccional['insertados_en_sql'], ENT_QUOTES, 'UTF-8') ?></div>
-                    <div class="col-6 col-xl-3"><strong>Insertados en Sheets:</strong> <?= htmlspecialchars((string) $resultadoBidireccional['insertados_en_sheet'], ENT_QUOTES, 'UTF-8') ?></div>
-                    <div class="col-6 col-xl-2"><strong>Actualizados en SQL:</strong> <?= htmlspecialchars((string) ($resultadoBidireccional['actualizados_en_sql'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
-                    <div class="col-6 col-xl-2"><strong>Cambios detectados:</strong> <?= htmlspecialchars((string) ($resultadoBidireccional['cambios_detectados'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
-                    <div class="col-12 col-xl-2"><strong>Coincidencias:</strong> <?= htmlspecialchars((string) $resultadoBidireccional['coincidencias'], ENT_QUOTES, 'UTF-8') ?></div>
-                </div>
-                <?php if (($resultadoBidireccional['errores'] ?? []) !== []): ?>
-                    <div class="alert alert-warning mb-0">
-                        <?php foreach ($resultadoBidireccional['errores'] as $detalleError): ?>
-                            <div><?= htmlspecialchars((string) $detalleError, ENT_QUOTES, 'UTF-8') ?></div>
-                        <?php endforeach; ?>
-                    </div>
-                <?php endif; ?>
-            </div>
-        </div>
-
-        <div class="card border-0 shadow-sm mb-4">
-            <div class="card-body">
-                <p class="eyebrow">Depuración temporal</p>
-                <div class="row g-3 mb-3">
-                    <div class="col-6 col-xl-2"><strong>Total SQL:</strong> <?= htmlspecialchars((string) ($resultadoBidireccional['total_sql'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
-                    <div class="col-6 col-xl-2"><strong>Total Sheets:</strong> <?= htmlspecialchars((string) ($resultadoBidireccional['total_sheet'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
-                    <div class="col-6 col-xl-2"><strong>Insertados SQL:</strong> <?= htmlspecialchars((string) ($resultadoBidireccional['insertados_en_sql'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
-                    <div class="col-6 col-xl-3"><strong>Insertados Sheets:</strong> <?= htmlspecialchars((string) ($resultadoBidireccional['insertados_en_sheet'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
-                    <div class="col-12 col-xl-3"><strong>Coincidencias:</strong> <?= htmlspecialchars((string) ($resultadoBidireccional['coincidencias'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
-                </div>
-
                 <div class="row g-3">
-                    <div class="col-12 col-xl-6">
-                        <div class="border rounded-3 p-3 bg-light h-100">
-                            <h3 class="h6 mb-2">IDs para insertar en Sheets</h3>
-                            <pre class="debug-pre mb-0"><?= htmlspecialchars(json_encode($resultadoBidireccional['ids_para_insertar_en_sheet'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?></pre>
-                        </div>
-                    </div>
-                    <div class="col-12 col-xl-6">
-                        <div class="border rounded-3 p-3 bg-light h-100">
-                            <h3 class="h6 mb-2">IDs para insertar en SQL</h3>
-                            <pre class="debug-pre mb-0"><?= htmlspecialchars(json_encode($resultadoBidireccional['ids_para_insertar_en_sql'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?></pre>
-                        </div>
-                    </div>
-                    <div class="col-12 col-xl-6">
-                        <div class="border rounded-3 p-3 bg-light h-100">
-                            <h3 class="h6 mb-2">IDs para actualizar en SQL</h3>
-                            <pre class="debug-pre mb-0"><?= htmlspecialchars(json_encode($resultadoBidireccional['ids_para_actualizar_en_sql'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?></pre>
-                        </div>
-                    </div>
-                    <div class="col-12 col-xl-6">
-                        <div class="border rounded-3 p-3 bg-light h-100">
-                            <h3 class="h6 mb-2">IDs duplicados en SQL</h3>
-                            <pre class="debug-pre mb-0"><?= htmlspecialchars(json_encode($resultadoBidireccional['ids_duplicados_sql'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?></pre>
-                        </div>
-                    </div>
-                    <div class="col-12 col-xl-6">
-                        <div class="border rounded-3 p-3 bg-light h-100">
-                            <h3 class="h6 mb-2">IDs duplicados en Sheets</h3>
-                            <pre class="debug-pre mb-0"><?= htmlspecialchars(json_encode($resultadoBidireccional['ids_duplicados_sheet'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?></pre>
-                        </div>
-                    </div>
-                    <div class="col-12 col-xl-6">
-                        <div class="border rounded-3 p-3 bg-light h-100">
-                            <h3 class="h6 mb-2">IDs ignorados por existir ya en SQL</h3>
-                            <pre class="debug-pre mb-0"><?= htmlspecialchars(json_encode($resultadoBidireccional['ids_ignorados_por_existir'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?></pre>
-                        </div>
-                    </div>
-                    <div class="col-12 col-xl-6">
-                        <div class="border rounded-3 p-3 bg-light h-100">
-                            <h3 class="h6 mb-2">Respuesta get_inventory</h3>
-                            <pre class="debug-pre mb-0"><?= htmlspecialchars(json_encode($resultadoBidireccional['respuesta_get_inventory'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?></pre>
-                        </div>
-                    </div>
-                    <div class="col-12 col-xl-6">
-                        <div class="border rounded-3 p-3 bg-light h-100">
-                            <h3 class="h6 mb-2">Respuesta append_inventory_rows</h3>
-                            <pre class="debug-pre mb-0"><?= htmlspecialchars(json_encode($resultadoBidireccional['respuesta_append_inventory_rows'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?></pre>
-                        </div>
-                    </div>
-                    <div class="col-12 col-xl-6">
-                        <div class="border rounded-3 p-3 bg-light h-100">
-                            <h3 class="h6 mb-2">Primeros IDs SQL</h3>
-                            <pre class="debug-pre mb-0"><?= htmlspecialchars(json_encode($resultadoBidireccional['ids_sql'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?></pre>
-                        </div>
-                    </div>
-                    <div class="col-12 col-xl-6">
-                        <div class="border rounded-3 p-3 bg-light h-100">
-                            <h3 class="h6 mb-2">Primeros IDs Sheets</h3>
-                            <pre class="debug-pre mb-0"><?= htmlspecialchars(json_encode($resultadoBidireccional['ids_sheet'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?></pre>
-                        </div>
-                    </div>
-                    <div class="col-12">
-                        <div class="border rounded-3 p-3 bg-light mb-3">
-                            <h3 class="h6 mb-2">Diferencias detectadas</h3>
-                            <pre class="debug-pre mb-0"><?= htmlspecialchars(json_encode($resultadoBidireccional['diferencias'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?></pre>
-                        </div>
-                    </div>
-                    <div class="col-12">
-                        <div class="border rounded-3 p-3 bg-light">
-                            <h3 class="h6 mb-2">Errores</h3>
-                            <pre class="debug-pre mb-0"><?= htmlspecialchars(json_encode($resultadoBidireccional['errores'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?></pre>
-                        </div>
-                    </div>
+                    <div class="col-6 col-xl-4"><strong>Filas activas en SQL:</strong> <?= htmlspecialchars((string) ($resultadoReflejoSheets['total_sql'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
+                    <div class="col-6 col-xl-4"><strong>Filas escritas en Sheets:</strong> <?= htmlspecialchars((string) ($resultadoReflejoSheets['reemplazados_en_sheet'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
                 </div>
             </div>
         </div>
@@ -302,6 +268,9 @@ renderAppLayoutStart(
                                 </a>
                             </th>
                         <?php endforeach; ?>
+                        <?php if (puedeEditarInventario()): ?>
+                            <th scope="col">Acciones</th>
+                        <?php endif; ?>
                     </tr>
                 </thead>
                 <tbody>
@@ -311,6 +280,29 @@ renderAppLayoutStart(
                                 <?php $valor = $fila[$columna] ?? ''; ?>
                                 <td><?= htmlspecialchars((string) ($valor !== null && $valor !== '' ? $valor : '-'), ENT_QUOTES, 'UTF-8') ?></td>
                             <?php endforeach; ?>
+                            <?php if (puedeEditarInventario()): ?>
+                                <?php
+                                $filaId = (int) ($fila['id'] ?? 0);
+                                $resumenFila = trim(implode(' | ', array_filter([
+                                    'ID ' . $filaId,
+                                    (string) ($fila['editorial'] ?? ''),
+                                    (string) ($fila['colegio'] ?? ''),
+                                    (string) ($fila['ubicacion'] ?? ''),
+                                ])));
+                                ?>
+                                <td>
+                                    <button
+                                        type="button"
+                                        class="btn btn-sm btn-outline-danger"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#anularInventarioModal"
+                                        data-inventario-id="<?= htmlspecialchars((string) $filaId, ENT_QUOTES, 'UTF-8') ?>"
+                                        data-inventario-resumen="<?= htmlspecialchars($resumenFila, ENT_QUOTES, 'UTF-8') ?>"
+                                    >
+                                        Anular
+                                    </button>
+                                </td>
+                            <?php endif; ?>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -318,4 +310,68 @@ renderAppLayoutStart(
         </div>
     <?php endif; ?>
 </section>
+
+<?php if (puedeEditarInventario()): ?>
+<div class="modal fade" id="anularInventarioModal" tabindex="-1" aria-labelledby="anularInventarioLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="anularInventarioLabel">Anular entrada de inventario</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">La aplicacion seguira siendo la fuente de verdad y la hoja de inventario se reconstruira desde SQL.</p>
+                <div class="alert alert-light border mb-3">
+                    <strong>Entrada seleccionada:</strong>
+                    <div id="anularInventarioResumen" class="mt-1">Sin seleccion</div>
+                </div>
+                <ul class="mb-0 text-body-secondary">
+                    <li>No se permite si ya participa en albaranes confirmados.</li>
+                    <li>No se permite si ya esta vinculada a pedidos.</li>
+                    <li>La operacion quedara registrada con usuario, fecha y motivo.</li>
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/inventario_consulta.php" class="w-100 d-grid gap-2">
+                    <input type="hidden" name="accion" value="anular_inventario">
+                    <input type="hidden" name="inventario_id" id="anularInventarioId" value="">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfAnulacion, ENT_QUOTES, 'UTF-8') ?>">
+                    <input type="hidden" name="return_query" value="<?= htmlspecialchars((string) ($_SERVER['QUERY_STRING'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
+                    <label class="form-label mb-0" for="motivo_anulacion">Motivo de anulacion</label>
+                    <textarea class="form-control" id="motivo_anulacion" name="motivo_anulacion" rows="3" required minlength="8" placeholder="Ej.: entrada duplicada o carga realizada por error"></textarea>
+                    <button type="submit" class="btn btn-danger">Confirmar anulacion</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const anularInventarioModal = document.getElementById('anularInventarioModal');
+const anularInventarioIdInput = document.getElementById('anularInventarioId');
+const anularInventarioResumen = document.getElementById('anularInventarioResumen');
+const motivoAnulacionInput = document.getElementById('motivo_anulacion');
+
+if (anularInventarioModal) {
+    anularInventarioModal.addEventListener('show.bs.modal', (event) => {
+        const trigger = event.relatedTarget;
+        const inventarioId = trigger?.getAttribute('data-inventario-id') || '';
+        const resumen = trigger?.getAttribute('data-inventario-resumen') || 'Sin seleccion';
+
+        if (anularInventarioIdInput) {
+            anularInventarioIdInput.value = inventarioId;
+        }
+
+        if (anularInventarioResumen) {
+            anularInventarioResumen.textContent = resumen;
+        }
+
+        if (motivoAnulacionInput) {
+            motivoAnulacionInput.value = '';
+        }
+    });
+}
+</script>
+<?php endif; ?>
 <?php renderAppLayoutEnd(); ?>

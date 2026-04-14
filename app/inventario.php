@@ -2,8 +2,11 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/actividad.php';
+
 const INVENTARIO_ESTADO_ACTIVO = 'activo';
 const INVENTARIO_ESTADO_HISTORICO = 'historico';
+const INVENTARIO_ESTADO_ANULADO = 'anulado';
 
 function columnasInventarioOrdenables(): array
 {
@@ -224,6 +227,26 @@ function consultarInventarioPorIds(PDO $pdo, array $ids, ?string $estado = INVEN
     return $stmt->fetchAll();
 }
 
+function consultarInventarioPorId(PDO $pdo, int $id): ?array
+{
+    if ($id <= 0) {
+        return null;
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT id, editorial, colegio, codigo_centro, ubicacion, fecha_entrada, fecha_salida, bultos, destino, `orden`,
+                indicador_completa, estado, fecha_confirmacion_salida, usuario_confirmacion, numero_albaran,
+                sync_pendiente_historico, fecha_sync_historico, usuario_anulacion_id, usuario_anulacion, fecha_anulacion, motivo_anulacion
+         FROM inventario
+         WHERE id = :id
+         LIMIT 1'
+    );
+    $stmt->execute([':id' => $id]);
+    $fila = $stmt->fetch();
+
+    return is_array($fila) ? $fila : null;
+}
+
 function consultarHistoricoPorNumeroAlbaran(PDO $pdo, string $numeroAlbaran): array
 {
     $numeroAlbaran = trim($numeroAlbaran);
@@ -293,9 +316,162 @@ function marcarLineasHistoricoSincronizadas(PDO $pdo, array $ids, ?DateTimeInter
     return $stmt->rowCount();
 }
 
+function obtenerBloqueosAnulacionInventario(PDO $pdo, int $inventarioId): array
+{
+    if ($inventarioId <= 0) {
+        return [];
+    }
+
+    $bloqueos = [];
+
+    $stmtAlbaran = $pdo->prepare(
+        'SELECT a.numero_albaran
+         FROM albaranes_salida_lineas l
+         INNER JOIN albaranes_salida a ON a.id = l.albaran_id
+         WHERE l.inventario_id = :inventario_id
+         ORDER BY a.fecha_confirmacion DESC
+         LIMIT 3'
+    );
+    $stmtAlbaran->execute([':inventario_id' => $inventarioId]);
+    $albaranes = array_values(array_filter(array_map(
+        static fn(mixed $valor): string => trim((string) $valor),
+        $stmtAlbaran->fetchAll(PDO::FETCH_COLUMN)
+    )));
+
+    if ($albaranes !== []) {
+        $bloqueos[] = 'La entrada ya forma parte de un albaran confirmado (' . implode(', ', $albaranes) . ').';
+    }
+
+    $stmtPedido = $pdo->prepare(
+        'SELECT p.codigo_pedido
+         FROM pedido_lineas pl
+         INNER JOIN pedidos p ON p.id = pl.pedido_id
+         WHERE pl.inventario_id = :inventario_id
+         ORDER BY p.fecha_creacion DESC
+         LIMIT 3'
+    );
+    $stmtPedido->execute([':inventario_id' => $inventarioId]);
+    $pedidos = array_values(array_filter(array_map(
+        static fn(mixed $valor): string => trim((string) $valor),
+        $stmtPedido->fetchAll(PDO::FETCH_COLUMN)
+    )));
+
+    if ($pedidos !== []) {
+        $bloqueos[] = 'La entrada ya esta vinculada a pedidos (' . implode(', ', $pedidos) . ').';
+    }
+
+    return $bloqueos;
+}
+
+function anularEntradaInventario(PDO $pdo, int $inventarioId, array $usuario, string $motivo): array
+{
+    $motivo = trim($motivo);
+    if ($inventarioId <= 0) {
+        throw new RuntimeException('La entrada indicada no es valida.');
+    }
+
+    if ($motivo === '' || strlen($motivo) < 8) {
+        throw new RuntimeException('Indica un motivo de anulacion claro para dejar trazabilidad.');
+    }
+
+    $usuarioId = isset($usuario['user_id']) && (int) $usuario['user_id'] > 0 ? (int) $usuario['user_id'] : null;
+    $username = trim((string) ($usuario['username'] ?? ''));
+    $fechaAnulacion = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
+
+    try {
+        $pdo->beginTransaction();
+
+        $inventario = consultarInventarioPorId($pdo, $inventarioId);
+        if ($inventario === null) {
+            throw new RuntimeException('La entrada de inventario solicitada no existe.');
+        }
+
+        $estado = (string) ($inventario['estado'] ?? '');
+        if ($estado === INVENTARIO_ESTADO_HISTORICO) {
+            throw new RuntimeException('No se puede anular una entrada que ya esta en historico.');
+        }
+
+        if ($estado === INVENTARIO_ESTADO_ANULADO) {
+            throw new RuntimeException('La entrada ya estaba anulada anteriormente.');
+        }
+
+        if ($estado !== INVENTARIO_ESTADO_ACTIVO) {
+            throw new RuntimeException('La entrada no esta disponible para anulacion.');
+        }
+
+        $bloqueos = obtenerBloqueosAnulacionInventario($pdo, $inventarioId);
+        if ($bloqueos !== []) {
+            throw new RuntimeException(implode(' ', $bloqueos));
+        }
+
+        $stmt = $pdo->prepare(
+            'UPDATE inventario
+             SET estado = :estado,
+                 usuario_anulacion_id = :usuario_anulacion_id,
+                 usuario_anulacion = :usuario_anulacion,
+                 fecha_anulacion = :fecha_anulacion,
+                 motivo_anulacion = :motivo_anulacion
+             WHERE id = :id
+               AND estado = :estado_actual'
+        );
+        $stmt->execute([
+            ':estado' => INVENTARIO_ESTADO_ANULADO,
+            ':usuario_anulacion_id' => $usuarioId,
+            ':usuario_anulacion' => $username !== '' ? $username : null,
+            ':fecha_anulacion' => $fechaAnulacion->format('Y-m-d H:i:s'),
+            ':motivo_anulacion' => $motivo,
+            ':id' => $inventarioId,
+            ':estado_actual' => INVENTARIO_ESTADO_ACTIVO,
+        ]);
+
+        if ($stmt->rowCount() !== 1) {
+            throw new RuntimeException('No se ha podido anular la entrada en este momento.');
+        }
+
+        registrarActividadSistema($pdo, [
+            'usuario_id' => $usuarioId,
+            'usuario' => $username,
+            'tipo_evento' => ACTIVIDAD_TIPO_INVENTARIO_ANULADO,
+            'entidad' => 'inventario',
+            'entidad_id' => $inventarioId,
+            'entidad_codigo' => (string) $inventarioId,
+            'descripcion' => 'Anulacion de entrada de inventario ID ' . $inventarioId,
+            'metadata' => [
+                'motivo' => $motivo,
+                'editorial' => (string) ($inventario['editorial'] ?? ''),
+                'colegio' => (string) ($inventario['colegio'] ?? ''),
+                'codigo_centro' => (string) ($inventario['codigo_centro'] ?? ''),
+            ],
+            'fecha_evento' => $fechaAnulacion,
+        ]);
+
+        $pdo->commit();
+
+        $inventario['estado'] = INVENTARIO_ESTADO_ANULADO;
+        $inventario['usuario_anulacion_id'] = $usuarioId;
+        $inventario['usuario_anulacion'] = $username;
+        $inventario['fecha_anulacion'] = $fechaAnulacion->format('Y-m-d H:i:s');
+        $inventario['motivo_anulacion'] = $motivo;
+
+        return $inventario;
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        if ($e instanceof RuntimeException) {
+            throw $e;
+        }
+
+        throw new RuntimeException('No se ha podido anular la entrada de inventario.', 0, $e);
+    }
+}
+
 function normalizarEstadoInventario(string $estado): string
 {
-    return $estado === INVENTARIO_ESTADO_HISTORICO
-        ? INVENTARIO_ESTADO_HISTORICO
-        : INVENTARIO_ESTADO_ACTIVO;
+    return match ($estado) {
+        INVENTARIO_ESTADO_HISTORICO => INVENTARIO_ESTADO_HISTORICO,
+        INVENTARIO_ESTADO_ANULADO => INVENTARIO_ESTADO_ANULADO,
+        default => INVENTARIO_ESTADO_ACTIVO,
+    };
 }

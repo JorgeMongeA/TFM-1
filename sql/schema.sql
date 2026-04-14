@@ -43,10 +43,14 @@ CREATE TABLE inventario (
     destino VARCHAR(50) NULL,
     `orden` VARCHAR(100) NULL,
     indicador_completa VARCHAR(100) NULL,
-    estado ENUM('activo', 'historico') NOT NULL DEFAULT 'activo',
+    estado ENUM('activo', 'historico', 'anulado') NOT NULL DEFAULT 'activo',
     fecha_confirmacion_salida DATETIME NULL,
     usuario_confirmacion_id INT NULL,
     usuario_confirmacion VARCHAR(100) NULL,
+    usuario_anulacion_id INT NULL,
+    usuario_anulacion VARCHAR(100) NULL,
+    fecha_anulacion DATETIME NULL,
+    motivo_anulacion VARCHAR(255) NULL,
     numero_albaran VARCHAR(50) NULL,
     sync_pendiente_historico TINYINT(1) NOT NULL DEFAULT 0,
     fecha_sync_historico DATETIME NULL,
@@ -56,6 +60,7 @@ CREATE TABLE inventario (
     INDEX idx_inventario_codigo_centro (codigo_centro),
     INDEX idx_inventario_numero_albaran (numero_albaran),
     INDEX idx_inventario_confirmacion (fecha_confirmacion_salida),
+    INDEX idx_inventario_fecha_anulacion (fecha_anulacion),
     INDEX idx_inventario_sync_historico (estado, sync_pendiente_historico)
 );
 
