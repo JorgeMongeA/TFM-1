@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * Autor: Jorge Monge
+ * Trabajo Final de Máster (TFM)
+ * UOC - 2026
+ */
+
 declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';
@@ -50,7 +56,7 @@ function menuLateral(): array
                     'permission' => PERMISO_INVENTARIO_SALIDA,
                 ],
                 [
-                    'label' => 'Historico',
+                    'label' => 'Histórico',
                     'href' => BASE_URL . '/historico.php',
                     'key' => 'historico',
                     'permission' => PERMISO_HISTORICO,
@@ -62,7 +68,7 @@ function menuLateral(): array
                     'permission' => PERMISO_ETIQUETAS,
                 ],
                 [
-                    'label' => 'Albaran',
+                    'label' => 'Albarán',
                     'href' => BASE_URL . '/albaran.php',
                     'key' => 'albaran',
                     'permission' => PERMISO_ALBARANES,
@@ -153,6 +159,26 @@ function itemMenuActivo(array $item, string $activeKey): bool
     return false;
 }
 
+function obtenerRutaLogoApp(): string
+{
+    return BASE_URL . '/assets/img/logo_maximos.png';
+}
+
+function renderMarcaApp(bool $movil = false): void
+{
+    $logo = obtenerRutaLogoApp();
+    $clase = $movil ? 'app-brand app-brand-mobile' : 'app-brand app-brand-sidebar';
+    ?>
+    <a class="<?= htmlspecialchars($clase, ENT_QUOTES, 'UTF-8') ?>" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/dashboard.php" aria-label="Ir al dashboard">
+        <img class="app-brand-logo" src="<?= htmlspecialchars($logo, ENT_QUOTES, 'UTF-8') ?>" alt="Logo Máximos">
+        <span class="app-brand-copy">
+            <span class="sidebar-kicker mb-1">Sistema interno</span>
+            <span class="app-brand-title">CONGREGACIONES</span>
+        </span>
+    </a>
+    <?php
+}
+
 function renderAppHeader(string $title): void
 {
     ?>
@@ -189,8 +215,7 @@ function renderAppLayoutStart(string $title, string $activeKey, ?string $pageTit
     <div class="app-shell">
         <aside class="sidebar border-end">
             <div class="sidebar-brand">
-                <p class="sidebar-kicker">Sistema interno</p>
-                <h2>CONGREGACIONES</h2>
+                <?php renderMarcaApp(); ?>
             </div>
 
             <div class="sidebar-user card border-0 shadow-sm">
@@ -203,7 +228,7 @@ function renderAppLayoutStart(string $title, string $activeKey, ?string $pageTit
                 </div>
             </div>
 
-            <nav class="sidebar-nav" aria-label="Navegacion principal">
+            <nav class="sidebar-nav" aria-label="Navegación principal">
                 <?php foreach ($menu as $item): ?>
                     <?php $activo = itemMenuActivo($item, $activeKey); ?>
                     <div class="sidebar-group">
@@ -229,8 +254,8 @@ function renderAppLayoutStart(string $title, string $activeKey, ?string $pageTit
         <div class="content-shell">
             <nav class="topbar navbar navbar-expand-lg d-lg-none bg-white border-bottom">
                 <div class="container-fluid px-3">
-                    <span class="navbar-brand mb-0 h1">CONGREGACIONES</span>
-                    <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar" aria-label="Abrir navegacion">
+                    <?php renderMarcaApp(true); ?>
+                    <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar" aria-label="Abrir navegación">
                         <span class="navbar-toggler-icon"></span>
                     </button>
                 </div>
@@ -238,9 +263,8 @@ function renderAppLayoutStart(string $title, string $activeKey, ?string $pageTit
 
             <div class="offcanvas offcanvas-start" tabindex="-1" id="mobileSidebar" aria-labelledby="mobileSidebarLabel">
                 <div class="offcanvas-header">
-                    <div>
-                        <p class="sidebar-kicker mb-1">Sistema interno</p>
-                        <h5 class="offcanvas-title" id="mobileSidebarLabel">CONGREGACIONES</h5>
+                    <div id="mobileSidebarLabel">
+                        <?php renderMarcaApp(true); ?>
                     </div>
                     <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
                 </div>
@@ -253,7 +277,7 @@ function renderAppLayoutStart(string $title, string $activeKey, ?string $pageTit
                         <?php endif; ?>
                     </div>
 
-                    <nav class="sidebar-nav" aria-label="Navegacion movil">
+                    <nav class="sidebar-nav" aria-label="Navegación móvil">
                         <?php foreach ($menu as $item): ?>
                             <?php $activo = itemMenuActivo($item, $activeKey); ?>
                             <div class="sidebar-group">
@@ -289,7 +313,7 @@ function renderAppLayoutStart(string $title, string $activeKey, ?string $pageTit
                         <?php if (puedeCambiarPassword()): ?>
                             <a class="btn btn-outline-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/cambiar_password.php">Cambiar contraseña</a>
                         <?php endif; ?>
-                        <a class="btn btn-outline-danger" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/logout.php">Cerrar sesion</a>
+                        <a class="btn btn-outline-danger" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/logout.php">Cerrar sesión</a>
                     </div>
                 </div>
     <?php

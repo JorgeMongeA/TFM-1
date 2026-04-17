@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * Autor: Jorge Monge
+ * Trabajo Final de Máster (TFM)
+ * UOC - 2026
+ */
+
 declare(strict_types=1);
 
 require_once __DIR__ . '/centros.php';
@@ -47,8 +53,6 @@ function sincronizarInventarioDesdeCsv(PDO $pdo, string $csvUrl): array
     );
 
     $siguienteId = obtenerSiguienteIdSincronizacionInventario($pdo);
-
-    // Futuro: desde aquí se podrá coordinar también la sincronización inversa SQL -> Google Sheets.
 
     try {
         $pdo->beginTransaction();

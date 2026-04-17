@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * Autor: Jorge Monge
+ * Trabajo Final de Máster (TFM)
+ * UOC - 2026
+ */
+
 declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';

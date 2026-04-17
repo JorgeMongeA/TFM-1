@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * Autor: Jorge Monge
+ * Trabajo Final de Máster (TFM)
+ * UOC - 2026
+ */
+
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/app/conexion.php';
@@ -260,7 +266,7 @@ renderAppLayoutStart(
                                    href="<?= htmlspecialchars($urlOrden, ENT_QUOTES, 'UTF-8') ?>">
                                     <?= htmlspecialchars($titulo, ENT_QUOTES, 'UTF-8') ?>
                                     <?php if ($ordenar === $columna): ?>
-                                        <span class="orden-indicador"><?= $direccion === 'ASC' ? '▲' : '▼' ?></span>
+                                        <span class="orden-indicador"><?= $direccion === 'ASC' ? '^' : 'v' ?></span>
                                     <?php endif; ?>
                                 </a>
                             </th>

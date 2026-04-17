@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * Autor: Jorge Monge
+ * Trabajo Final de Máster (TFM)
+ * UOC - 2026
+ */
+
 declare(strict_types=1);
 
 const NOTIFICACION_TIPO_ALTA_USUARIO = 'usuario_nuevo';

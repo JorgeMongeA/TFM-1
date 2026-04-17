@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * Autor: Jorge Monge
+ * Trabajo Final de Máster (TFM)
+ * UOC - 2026
+ */
+
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/app/conexion.php';
@@ -169,7 +175,7 @@ renderAppLayoutStart(
                                 <article class="pedido-timeline-item">
                                     <div class="pedido-timeline-marker">
                                         <span class="pedido-timeline-dot pedido-timeline-dot--<?= htmlspecialchars((string) ($evento['tipo_evento'] ?? 'evento'), ENT_QUOTES, 'UTF-8') ?>">
-                                            <?= htmlspecialchars((string) ($evento['icono'] ?? '•'), ENT_QUOTES, 'UTF-8') ?>
+                                            <?= htmlspecialchars((string) ($evento['icono'] ?? '*'), ENT_QUOTES, 'UTF-8') ?>
                                         </span>
                                     </div>
                                     <div class="pedido-timeline-content">
@@ -192,7 +198,7 @@ renderAppLayoutStart(
                                             <?php if (((string) ($evento['estado_anterior'] ?? '')) !== '' && ((string) ($evento['estado_nuevo'] ?? '')) !== ''): ?>
                                                 <span>
                                                     <?= htmlspecialchars(etiquetaEstadoPedido((string) $evento['estado_anterior']), ENT_QUOTES, 'UTF-8') ?>
-                                                    →
+                                                    &rarr;
                                                     <?= htmlspecialchars(etiquetaEstadoPedido((string) $evento['estado_nuevo']), ENT_QUOTES, 'UTF-8') ?>
                                                 </span>
                                             <?php endif; ?>

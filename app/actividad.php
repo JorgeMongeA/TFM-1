@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * Autor: Jorge Monge
+ * Trabajo Final de Máster (TFM)
+ * UOC - 2026
+ */
+
 declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';
@@ -245,7 +251,7 @@ function actividadIcono(string $tipoEvento): string
         'sistema_reiniciado' => 'S',
         'campana_confirmacion_validada' => 'C',
         'password_reset_audit' => 'A',
-        default => '•',
+        default => '*',
     };
 }
 
@@ -277,7 +283,7 @@ function timelineIconoPedido(array $evento): string
         'en_preparacion' => '1',
         'preparado' => '2',
         'completado' => '3',
-        default => '•',
+        default => '*',
     };
 }
 

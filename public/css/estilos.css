@@ -134,11 +134,68 @@ select:focus {
     gap: 24px;
 }
 
-.sidebar-brand h2 {
+.sidebar-brand {
+    display: flex;
+    align-items: flex-start;
+    padding-bottom: 4px;
+}
+
+.app-brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    text-decoration: none;
+    color: inherit;
+}
+
+.app-brand:hover {
+    color: inherit;
+}
+
+.app-brand-logo {
+    width: 54px;
+    height: auto;
+    display: block;
+    flex: 0 0 auto;
+}
+
+.app-brand-copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.app-brand-sidebar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.app-brand-sidebar .app-brand-logo {
+    width: 36px;
+}
+
+.app-brand-sidebar .app-brand-copy {
+    gap: 1px;
+}
+
+.app-brand-sidebar .sidebar-kicker {
+    margin-bottom: 3px;
+}
+
+.app-brand-sidebar .app-brand-title {
+    font-size: 21px;
+    line-height: 1.08;
+}
+
+.app-brand-title {
+    display: block;
     margin: 0;
     font-size: 24px;
     font-weight: 700;
+    line-height: 1.05;
     color: #ffffff;
+    letter-spacing: 0.01em;
 }
 
 .sidebar-kicker {
@@ -235,6 +292,47 @@ select:focus {
     font-size: 18px;
     font-weight: 700;
     color: #17395b;
+}
+
+.topbar .app-brand {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 10px;
+}
+
+.topbar .app-brand-logo {
+    width: 34px;
+}
+
+.topbar .app-brand-title {
+    font-size: 17px;
+    color: #17395b;
+    line-height: 1.05;
+}
+
+.topbar .sidebar-kicker {
+    color: #5a718c;
+    font-size: 11px;
+    margin-bottom: 2px;
+}
+
+.offcanvas .app-brand {
+    gap: 12px;
+}
+
+.offcanvas .app-brand-logo {
+    width: 36px;
+}
+
+.offcanvas .app-brand-title {
+    font-size: 18px;
+    color: #17395b;
+}
+
+.offcanvas .sidebar-kicker {
+    color: #5a718c;
+    font-size: 11px;
+    margin-bottom: 2px;
 }
 
 .app-main {

@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * Autor: Jorge Monge
+ * Trabajo Final de Máster (TFM)
+ * UOC - 2026
+ */
+
 declare(strict_types=1);
 
 const GOOGLE_SHEETS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxJXA80jesoay9I0-covN_3co18Gndn2Ck7Q0vbtNt8gWZg42IHW5u2Uu7n6k6b8INR/exec';
@@ -601,17 +607,3 @@ function normalizarValorComparableInventario(string $campo, mixed $valor): ?stri
     return $texto;
 }
 
-/*
-Apps Script esperado:
-- action: get_inventory
-  Devuelve filas de la pestana Inventario, solo para stock activo.
-- action: append_inventory_rows
-  Inserta filas nuevas en la pestana Inventario.
-
-Preparacion para la fase de historico:
-- obtenerHistoricoPendienteSheets() devuelve las lineas confirmadas en SQL pendientes de mover a la pestana Historico.
-- El siguiente paso en Apps Script debe implementar operaciones equivalentes a:
-  - delete_inventory_rows_by_id
-  - upsert_history_rows
-  - confirm_history_sync
-*/

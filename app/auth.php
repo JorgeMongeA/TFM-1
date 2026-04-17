@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * Autor: Jorge Monge
+ * Trabajo Final de Máster (TFM)
+ * UOC - 2026
+ */
+
 declare(strict_types=1);
 
 require_once __DIR__ . '/conexion.php';
@@ -25,7 +31,6 @@ const PERMISO_CAMPANAS = 'campanas';
 function aliasesRolesAplicacion(): array
 {
     return [
-        // Compatibilidad con roles legacy en BD: editor = almacen, consultor = edelvives.
         'admin' => ROL_ALMACEN,
         'operaciones' => ROL_ALMACEN,
         'editor' => ROL_ALMACEN,

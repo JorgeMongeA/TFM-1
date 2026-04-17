@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * Autor: Jorge Monge
+ * Trabajo Final de Máster (TFM)
+ * UOC - 2026
+ */
+
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/app/auth.php';
@@ -87,10 +93,6 @@ try {
         $notificaciones = listarNotificacionesUsuario($pdo, USUARIO_CIRCUITO_SOLICITUDES_USERNAME, 10);
         $notificacionesNoLeidas = contarNotificacionesNoLeidas($pdo, USUARIO_CIRCUITO_SOLICITUDES_USERNAME);
 
-        if ($notificaciones === [] && isset($_GET['debug_notificaciones']) && $_GET['debug_notificaciones'] === '1') {
-            var_dump($notificaciones);
-            exit;
-        }
     }
 } catch (Throwable $e) {
     $errorActividad = 'No se ha podido cargar la actividad reciente.';
@@ -101,7 +103,7 @@ renderAppLayoutStart(
     'Dashboard',
     'dashboard',
     'Dashboard',
-    'Panel de usuario y accesos disponibles segun tu rol'
+    'Panel de usuario y accesos disponibles según tu rol'
 );
 ?>
 <section class="panel panel-card">
@@ -125,7 +127,7 @@ renderAppLayoutStart(
         <div class="col-12 col-xl-5">
             <div class="card h-100 border-0 shadow-sm">
                 <div class="card-body">
-                    <p class="eyebrow">Acciones rapidas</p>
+                    <p class="eyebrow">Acciones rápidas</p>
                     <div class="d-grid gap-2">
                         <a class="btn btn-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/cambiar_password.php">Cambiar contraseña</a>
                         <?php if (puedeGestionarUsuarios()): ?>
@@ -136,7 +138,7 @@ renderAppLayoutStart(
                         <?php if (puedePrepararCampanas()): ?>
                             <button class="btn btn-outline-dark" type="button" data-bs-toggle="modal" data-bs-target="#modalIniciarCampana">Iniciar nueva campaña</button>
                         <?php endif; ?>
-                        <a class="btn btn-outline-danger" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/logout.php">Cerrar sesion</a>
+                        <a class="btn btn-outline-danger" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/logout.php">Cerrar sesión</a>
                     </div>
                 </div>
             </div>
@@ -162,7 +164,7 @@ renderAppLayoutStart(
                                         <div>
                                             <div class="d-flex flex-wrap gap-2 mb-1">
                                                 <span class="badge <?= (int) ($notificacion['leida'] ?? 0) === 1 ? 'text-bg-secondary' : 'text-bg-primary' ?>">
-                                                    <?= (int) ($notificacion['leida'] ?? 0) === 1 ? 'Leida' : 'Nueva' ?>
+                                                    <?= (int) ($notificacion['leida'] ?? 0) === 1 ? 'Leída' : 'Nueva' ?>
                                                 </span>
                                                 <span class="text-body-secondary"><?= htmlspecialchars((string) ($notificacion['fecha'] ?? ''), ENT_QUOTES, 'UTF-8') ?></span>
                                             </div>
@@ -186,7 +188,7 @@ renderAppLayoutStart(
         <div class="col-12">
             <div class="card border-0 shadow-sm">
                 <div class="card-body">
-                    <p class="eyebrow">Navegacion</p>
+                    <p class="eyebrow">Navegación</p>
                     <div class="dashboard-links">
                         <?php foreach ($accesos as $acceso): ?>
                             <a class="dashboard-link-card" href="<?= htmlspecialchars((string) $acceso['href'], ENT_QUOTES, 'UTF-8') ?>">
@@ -204,9 +206,9 @@ renderAppLayoutStart(
                     <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-2 mb-3">
                         <div>
                             <p class="eyebrow mb-1">Actividad reciente</p>
-                            <h2 class="section-title">Ultima actividad</h2>
+                            <h2 class="section-title">Última actividad</h2>
                         </div>
-                        <p class="mb-0 text-body-secondary">Ultimos 20 movimientos relevantes del sistema, ordenados de mas reciente a mas antiguo.</p>
+                        <p class="mb-0 text-body-secondary">Últimos 20 movimientos relevantes del sistema, ordenados de más reciente a más antiguo.</p>
                     </div>
 
                     <?php if ($errorActividad !== ''): ?>
@@ -218,7 +220,7 @@ renderAppLayoutStart(
                             <?php foreach ($ultimaActividad as $actividad): ?>
                                 <article class="activity-item">
                                     <div class="activity-icon activity-icon--<?= htmlspecialchars((string) ($actividad['tipo_evento'] ?? 'sistema'), ENT_QUOTES, 'UTF-8') ?>">
-                                        <?= htmlspecialchars((string) ($actividad['icono'] ?? '•'), ENT_QUOTES, 'UTF-8') ?>
+                                        <?= htmlspecialchars((string) ($actividad['icono'] ?? '*'), ENT_QUOTES, 'UTF-8') ?>
                                     </div>
                                     <div class="activity-content">
                                         <div class="d-flex flex-column flex-xl-row align-items-xl-center gap-2 mb-1">

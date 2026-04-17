@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * Autor: Jorge Monge
+ * Trabajo Final de Máster (TFM)
+ * UOC - 2026
+ */
+
 declare(strict_types=1);
 
 require_once __DIR__ . '/actividad.php';
@@ -45,6 +51,7 @@ function validarNuevoUsuarioDetallado(PDO $pdo, array $datos): array
         'username' => ['ok' => true, 'mensajes' => []],
         'email' => ['ok' => true, 'mensajes' => []],
         'password' => ['ok' => true, 'mensajes' => []],
+        'password_confirmacion' => ['ok' => true, 'mensajes' => []],
         'rol_id' => ['ok' => true, 'mensajes' => []],
         'errores' => [],
     ];
@@ -85,14 +92,24 @@ function validarNuevoUsuarioDetallado(PDO $pdo, array $datos): array
         $resultado['email']['mensajes'][] = 'El email ya esta asociado a otra cuenta.';
     }
 
-    if ($password === '' || strlen($password) < 8) {
+    if ($password === '') {
+        $resultado['password']['ok'] = false;
+        $resultado['password']['mensajes'][] = 'Debes introducir una contraseña.';
+    }
+
+    if ($password !== '' && strlen($password) < 8) {
         $resultado['password']['ok'] = false;
         $resultado['password']['mensajes'][] = 'La contraseña debe tener al menos 8 caracteres.';
     }
 
-    if ($password !== $passwordConfirmacion) {
-        $resultado['password']['ok'] = false;
-        $resultado['password']['mensajes'][] = 'La contraseña y su confirmación no coinciden.';
+    if ($passwordConfirmacion === '') {
+        $resultado['password_confirmacion']['ok'] = false;
+        $resultado['password_confirmacion']['mensajes'][] = 'La confirmación de contraseña es obligatoria.';
+    }
+
+    if ($password !== '' && $passwordConfirmacion !== '' && $password !== $passwordConfirmacion) {
+        $resultado['password_confirmacion']['ok'] = false;
+        $resultado['password_confirmacion']['mensajes'][] = 'La contraseña y su confirmación no coinciden.';
     }
 
     if (!rolIdAsignableUsuarios($pdo, $rolId)) {
@@ -100,7 +117,7 @@ function validarNuevoUsuarioDetallado(PDO $pdo, array $datos): array
         $resultado['rol_id']['mensajes'][] = 'Selecciona un rol inicial valido.';
     }
 
-    foreach (['username', 'email', 'password', 'rol_id'] as $campo) {
+    foreach (['username', 'email', 'password', 'password_confirmacion', 'rol_id'] as $campo) {
         foreach ($resultado[$campo]['mensajes'] as $mensaje) {
             $resultado['errores'][] = $mensaje;
         }
