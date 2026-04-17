@@ -12,18 +12,6 @@ const USUARIO_ESTADO_RECHAZADO = 'rechazado';
 const USUARIO_CIRCUITO_SOLICITUDES_USERNAME = 'almacen';
 const USUARIO_CIRCUITO_SOLICITUDES_EMAIL = 'almacen@maximosl.com';
 
-function detalleColumnasUsuarios(PDO $pdo): array
-{
-    try {
-        $stmt = $pdo->query('SHOW COLUMNS FROM usuarios');
-        $columnas = $stmt->fetchAll();
-
-        return is_array($columnas) ? $columnas : [];
-    } catch (Throwable $e) {
-        return [];
-    }
-}
-
 function condicionesPendienteSql(PDO $pdo, string $alias = 'usuarios'): string
 {
     $prefijo = $alias !== '' ? $alias . '.' : '';
@@ -50,7 +38,7 @@ function estadoInicialSolicitudUsuario(PDO $pdo): array
     return $estado;
 }
 
-function diagnosticoValidacionNuevoUsuario(PDO $pdo, array $datos): array
+function validarNuevoUsuarioDetallado(PDO $pdo, array $datos): array
 {
     $resultado = [
         'gestion_disponible' => usuariosSoportanGestion($pdo),
@@ -104,7 +92,7 @@ function diagnosticoValidacionNuevoUsuario(PDO $pdo, array $datos): array
 
     if ($password !== $passwordConfirmacion) {
         $resultado['password']['ok'] = false;
-        $resultado['password']['mensajes'][] = 'La contraseña y su confirmacion no coinciden.';
+        $resultado['password']['mensajes'][] = 'La contraseña y su confirmación no coinciden.';
     }
 
     if (!rolIdAsignableUsuarios($pdo, $rolId)) {
@@ -119,33 +107,6 @@ function diagnosticoValidacionNuevoUsuario(PDO $pdo, array $datos): array
     }
 
     return $resultado;
-}
-
-function diagnosticoSolicitudesUsuarios(PDO $pdo): array
-{
-    $pendientesSql = condicionesPendienteSql($pdo);
-    $totalUsuarios = (int) $pdo->query('SELECT COUNT(*) FROM usuarios')->fetchColumn();
-    $totalPendientes = (int) $pdo->query('SELECT COUNT(*) FROM usuarios WHERE ' . $pendientesSql)->fetchColumn();
-
-    $selectUltimo = [
-        'id',
-        'username',
-        usuariosTieneColumna($pdo, 'email') ? 'email' : 'NULL AS email',
-        usuariosTieneColumna($pdo, 'activo') ? 'activo' : '1 AS activo',
-        usuariosTieneColumna($pdo, 'aprobado') ? 'aprobado' : '1 AS aprobado',
-        usuariosTieneColumna($pdo, 'rechazado') ? 'rechazado' : '0 AS rechazado',
-        'rol_id',
-    ];
-
-    $stmt = $pdo->query('SELECT ' . implode(', ', $selectUltimo) . ' FROM usuarios ORDER BY id DESC LIMIT 1');
-    $ultimaFila = $stmt->fetch();
-
-    return [
-        'total_usuarios' => $totalUsuarios,
-        'total_pendientes' => $totalPendientes,
-        'pendientes_sql' => $pendientesSql,
-        'ultima_fila' => is_array($ultimaFila) ? $ultimaFila : null,
-    ];
 }
 
 function usuarioEstaPendiente(array $usuario): bool
@@ -317,13 +278,8 @@ function contarUsuariosPendientes(PDO $pdo): int
     }
 
     $sql = 'SELECT COUNT(*) FROM usuarios WHERE ' . condicionesPendienteSql($pdo);
-    error_log('[USUARIOS] contar pendientes SQL => ' . $sql);
-
     $stmt = $pdo->query($sql);
-    $total = (int) $stmt->fetchColumn();
-    error_log('[USUARIOS] pendientes detectados => ' . $total);
-
-    return $total;
+    return (int) $stmt->fetchColumn();
 }
 
 function listarUsuariosGestion(PDO $pdo, array $filtros = []): array
@@ -409,12 +365,10 @@ function listarUsuariosGestion(PDO $pdo, array $filtros = []): array
         $sql .= ', u.creado_en DESC';
     }
     $sql .= ', u.id DESC';
-    error_log('[USUARIOS] listar gestion SQL => ' . $sql . ' | filtros=' . json_encode($filtros, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     $usuarios = $stmt->fetchAll();
-    error_log('[USUARIOS] listar gestion total => ' . count($usuarios));
 
     $rolesCanonicos = rolesAsignablesPorNombre($pdo);
 
@@ -467,69 +421,14 @@ function etiquetaEstadoGestionUsuario(string $estado): string
 
 function validarDatosNuevoUsuario(PDO $pdo, array $datos): array
 {
-    $diagnostico = diagnosticoValidacionNuevoUsuario($pdo, $datos);
-    $errores = $diagnostico['errores'];
+    $resultadoValidacion = validarNuevoUsuarioDetallado($pdo, $datos);
+    $errores = $resultadoValidacion['errores'];
 
     if ($errores !== []) {
         error_log('[USUARIOS] validacion alta bloqueada => ' . json_encode([
             'username' => trim((string) ($datos['username'] ?? '')),
             'email' => trim((string) ($datos['email'] ?? '')),
             'rol_id' => (int) ($datos['rol_id'] ?? 0),
-            'errores' => $errores,
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-    }
-
-    return $errores;
-
-    if (!usuariosSoportanGestion($pdo)) {
-        return ['La gestion avanzada de usuarios no esta disponible hasta aplicar la migracion de base de datos.'];
-    }
-
-    $errores = [];
-
-    $username = trim((string) ($datos['username'] ?? ''));
-    $email = trim((string) ($datos['email'] ?? ''));
-    $password = (string) ($datos['password'] ?? '');
-    $passwordConfirmacion = (string) ($datos['password_confirmacion'] ?? '');
-    $rolId = (int) ($datos['rol_id'] ?? 0);
-
-    if ($username === '' || strlen($username) < 3) {
-        $errores[] = 'El nombre de usuario debe tener al menos 3 caracteres.';
-    }
-
-    if (!preg_match('/^[a-zA-Z0-9._-]+$/', $username)) {
-        $errores[] = 'El nombre de usuario solo puede contener letras, numeros, puntos, guiones y guion bajo.';
-    }
-
-    if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
-        $errores[] = 'Indica un email valido.';
-    }
-
-    if ($password === '' || strlen($password) < 8) {
-        $errores[] = 'La contraseña debe tener al menos 8 caracteres.';
-    }
-
-    if ($password !== $passwordConfirmacion) {
-        $errores[] = 'La contraseña y su confirmación no coinciden.';
-    }
-
-    if (!rolIdAsignableUsuarios($pdo, $rolId)) {
-        $errores[] = 'Selecciona un rol inicial valido.';
-    }
-
-    if ($username !== '' && existeUsernameUsuario($pdo, $username)) {
-        $errores[] = 'El nombre de usuario ya existe.';
-    }
-
-    if ($email !== '' && existeEmailUsuario($pdo, $email)) {
-        $errores[] = 'El email ya esta asociado a otra cuenta.';
-    }
-
-    if ($errores !== []) {
-        error_log('[USUARIOS] validacion alta bloqueada => ' . json_encode([
-            'username' => $username,
-            'email' => $email,
-            'rol_id' => $rolId,
             'errores' => $errores,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     }
@@ -554,13 +453,6 @@ function crearSolicitudUsuario(PDO $pdo, array $datos, ?array $solicitante = nul
     $passwordHash = password_hash((string) $datos['password'], PASSWORD_DEFAULT);
     $fecha = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
     $estadoInicial = estadoInicialSolicitudUsuario($pdo);
-
-    error_log('[USUARIOS] alta solicitud recibida => ' . json_encode([
-        'username' => $username,
-        'email' => $email,
-        'rol_id' => $rolId,
-        'estado_inicial' => $estadoInicial,
-    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
     $columnasInsert = ['username', 'email', 'password', 'rol_id'];
     $valoresInsert = [':username', ':email', ':password', ':rol_id'];
@@ -604,13 +496,12 @@ function crearSolicitudUsuario(PDO $pdo, array $datos, ?array $solicitante = nul
         );
         $stmt->execute($paramsInsert);
     } catch (Throwable $e) {
-        error_log('[USUARIOS] error insertando solicitud => ' . $e->getMessage());
+        error_log('[USUARIOS] Error insertando la solicitud de usuario: ' . $e->getMessage());
         throw $e;
     }
 
     $usuarioId = (int) $pdo->lastInsertId();
     $rol = obtenerRolPorId($pdo, $rolId);
-    error_log('[USUARIOS] solicitud insertada => usuario_id=' . $usuarioId . ' username=' . $username);
 
     registrarActividadSistema($pdo, [
         'usuario_id' => isset($solicitante['user_id']) ? (int) $solicitante['user_id'] : null,
@@ -633,19 +524,10 @@ function crearSolicitudUsuario(PDO $pdo, array $datos, ?array $solicitante = nul
     try {
         crearNotificacion($pdo, USUARIO_CIRCUITO_SOLICITUDES_USERNAME, NOTIFICACION_TIPO_ALTA_USUARIO, 'Nueva solicitud de usuario: ' . $username);
     } catch (Throwable $e) {
-        error_log('[USUARIOS] No se pudo crear notificacion de usuario nuevo para almacen: ' . $e->getMessage());
+        error_log('[USUARIOS] No se pudo crear la notificacion de nueva solicitud para almacen: ' . $e->getMessage());
     }
 
-    $usuarioCreado = obtenerUsuarioGestionPorId($pdo, $usuarioId) ?? [];
-    error_log('[USUARIOS] estado persistido solicitud => ' . json_encode([
-        'id' => $usuarioCreado['id'] ?? $usuarioId,
-        'username' => $usuarioCreado['username'] ?? $username,
-        'activo' => $usuarioCreado['activo'] ?? null,
-        'aprobado' => $usuarioCreado['aprobado'] ?? null,
-        'rechazado' => $usuarioCreado['rechazado'] ?? null,
-    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-
-    return $usuarioCreado;
+    return obtenerUsuarioGestionPorId($pdo, $usuarioId) ?? [];
 }
 
 function obtenerUsuarioGestionPorId(PDO $pdo, int $usuarioId): ?array
