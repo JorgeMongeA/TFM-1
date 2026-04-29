@@ -16,11 +16,17 @@ require_once dirname(__DIR__) . '/app/usuarios.php';
 require_login();
 requierePermiso(PERMISO_USUARIOS, 'No tienes permisos para gestionar usuarios.');
 
+if (!puedeGestionarUsuarios()) {
+    renderizarAccesoDenegado('No tienes permisos para gestionar usuarios.');
+}
+
 $filtros = [
     'estado' => trim((string) ($_GET['estado'] ?? '')),
     'rol_id' => (int) ($_GET['rol_id'] ?? 0),
     'q' => trim((string) ($_GET['q'] ?? '')),
 ];
+$returnQueryActual = (string) ($_SERVER['QUERY_STRING'] ?? '');
+$puedeCambiarPasswordGestion = puedeGestionarUsuarios();
 $usuarios = [];
 $roles = [];
 $error = '';
@@ -147,6 +153,13 @@ renderAppLayoutStart(
                         </thead>
                         <tbody>
                             <?php foreach ($usuarios as $usuario): ?>
+                                <?php
+                                $usuarioIdGestion = (int) ($usuario['id'] ?? 0);
+                                $urlCambioPassword = BASE_URL . '/usuario_password.php?id=' . rawurlencode((string) $usuarioIdGestion);
+                                if ($returnQueryActual !== '') {
+                                    $urlCambioPassword .= '&return_query=' . rawurlencode($returnQueryActual);
+                                }
+                                ?>
                                 <tr>
                                     <td><?= htmlspecialchars((string) ($usuario['username'] ?? ''), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td><?= htmlspecialchars((string) (($usuario['email'] ?? '') !== '' ? $usuario['email'] : '-'), ENT_QUOTES, 'UTF-8') ?></td>
@@ -180,6 +193,9 @@ renderAppLayoutStart(
                                                 <input type="hidden" name="return_query" value="<?= htmlspecialchars((string) ($_SERVER['QUERY_STRING'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
                                                 <button class="btn btn-sm btn-outline-danger w-100" type="submit">Rechazar</button>
                                             </form>
+                                            <?php if ($puedeCambiarPasswordGestion): ?>
+                                                <a class="btn btn-sm btn-outline-secondary w-100 mt-2" href="<?= htmlspecialchars($urlCambioPassword, ENT_QUOTES, 'UTF-8') ?>">Cambiar contraseña</a>
+                                            <?php endif; ?>
                                         <?php else: ?>
                                             <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/usuarios.php" class="d-flex flex-column gap-2">
                                                 <input type="hidden" name="accion" value="actualizar">
@@ -198,6 +214,9 @@ renderAppLayoutStart(
                                                 </select>
                                                 <button class="btn btn-sm btn-outline-primary" type="submit">Guardar</button>
                                             </form>
+                                            <?php if ($puedeCambiarPasswordGestion): ?>
+                                                <a class="btn btn-sm btn-outline-secondary w-100 mt-2" href="<?= htmlspecialchars($urlCambioPassword, ENT_QUOTES, 'UTF-8') ?>">Cambiar contraseña</a>
+                                            <?php endif; ?>
                                         <?php endif; ?>
                                     </td>
                                 </tr>

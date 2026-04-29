@@ -586,6 +586,86 @@ function obtenerUsuarioGestionPorId(PDO $pdo, int $usuarioId): ?array
     return is_array($usuario) ? $usuario : null;
 }
 
+function cambiarPasswordUsuarioGestion(PDO $pdo, int $usuarioId, string $passwordNueva, string $passwordConfirmacion, array $admin): void
+{
+    if (normalizarRolAplicacion((string) ($admin['rol'] ?? '')) !== ROL_ALMACEN) {
+        throw new RuntimeException('No tienes permisos para cambiar contraseñas de usuarios.');
+    }
+
+    if (!usuariosSoportanGestion($pdo)) {
+        throw new RuntimeException('La gestion avanzada de usuarios no esta disponible hasta aplicar la migracion de base de datos.');
+    }
+
+    $usuario = obtenerUsuarioGestionPorId($pdo, $usuarioId);
+    if ($usuario === null) {
+        throw new RuntimeException('El usuario indicado no existe.');
+    }
+
+    if ($passwordNueva === '' || $passwordConfirmacion === '') {
+        throw new RuntimeException('Completa todos los campos.');
+    }
+
+    if (strlen($passwordNueva) < 8) {
+        throw new RuntimeException('La contraseña debe tener al menos 8 caracteres.');
+    }
+
+    if ($passwordNueva !== $passwordConfirmacion) {
+        throw new RuntimeException('Las contraseñas no coinciden.');
+    }
+
+    $fecha = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
+    $adminId = isset($admin['user_id']) ? (int) $admin['user_id'] : null;
+    $adminUsername = trim((string) ($admin['username'] ?? ''));
+    $hash = password_hash($passwordNueva, PASSWORD_DEFAULT);
+
+    $sets = ['password = :password'];
+    $params = [
+        ':password' => $hash,
+        ':id' => $usuarioId,
+    ];
+
+    if (usuariosTieneColumna($pdo, 'actualizado_en')) {
+        $sets[] = 'actualizado_en = :actualizado_en';
+        $params[':actualizado_en'] = $fecha->format('Y-m-d H:i:s');
+    }
+
+    $gestionarTransaccion = !$pdo->inTransaction();
+
+    try {
+        if ($gestionarTransaccion) {
+            $pdo->beginTransaction();
+        }
+
+        $stmt = $pdo->prepare('UPDATE usuarios SET ' . implode(', ', $sets) . ' WHERE id = :id');
+        $stmt->execute($params);
+
+        registrarActividadSistema($pdo, [
+            'usuario_id' => $adminId,
+            'usuario' => $adminUsername !== '' ? $adminUsername : ROL_ALMACEN,
+            'tipo_evento' => 'usuario_password',
+            'entidad' => 'usuario',
+            'entidad_id' => $usuarioId,
+            'entidad_codigo' => (string) ($usuario['username'] ?? ''),
+            'descripcion' => 'Usuario almacen cambió la contraseña del usuario ' . (string) ($usuario['username'] ?? ''),
+            'metadata' => [
+                'admin_username' => $adminUsername,
+                'admin_rol' => normalizarRolAplicacion((string) ($admin['rol'] ?? '')),
+            ],
+            'fecha_evento' => $fecha,
+        ]);
+
+        if ($gestionarTransaccion) {
+            $pdo->commit();
+        }
+    } catch (Throwable $e) {
+        if ($gestionarTransaccion && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $e;
+    }
+}
+
 function aprobarUsuario(PDO $pdo, int $usuarioId, int $rolId, array $admin): void
 {
     if (!usuariosSoportanGestion($pdo)) {
