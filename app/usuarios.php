@@ -17,6 +17,8 @@ const USUARIO_ESTADO_DESACTIVADO = 'desactivado';
 const USUARIO_ESTADO_RECHAZADO = 'rechazado';
 const USUARIO_CIRCUITO_SOLICITUDES_USERNAME = 'almacen';
 const USUARIO_CIRCUITO_SOLICITUDES_EMAIL = 'almacen@maximosl.com';
+const USUARIO_ELIMINACION_DELETE = 'delete';
+const USUARIO_ELIMINACION_BAJA_LOGICA = 'baja_logica';
 
 function condicionesPendienteSql(PDO $pdo, string $alias = 'usuarios'): string
 {
@@ -664,6 +666,261 @@ function cambiarPasswordUsuarioGestion(PDO $pdo, int $usuarioId, string $passwor
 
         throw $e;
     }
+}
+
+function eliminarUsuarioGestion(PDO $pdo, int $usuarioId, array $admin): string
+{
+    if (normalizarRolAplicacion((string) ($admin['rol'] ?? '')) !== ROL_ALMACEN) {
+        throw new RuntimeException('No puedes eliminar este usuario.');
+    }
+
+    if (!usuariosSoportanGestion($pdo)) {
+        throw new RuntimeException('No se ha podido eliminar el usuario.');
+    }
+
+    $usuario = obtenerUsuarioGestionPorId($pdo, $usuarioId);
+    if ($usuario === null || usuarioEliminacionBloqueada($usuario, $admin)) {
+        throw new RuntimeException('No puedes eliminar este usuario.');
+    }
+
+    $fecha = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
+    $adminId = isset($admin['user_id']) ? (int) $admin['user_id'] : null;
+    $adminUsername = trim((string) ($admin['username'] ?? ''));
+    $dependencias = dependenciasUsuarioGestionEliminacion($pdo, $usuarioId);
+    $estrategia = $dependencias === [] ? USUARIO_ELIMINACION_DELETE : USUARIO_ELIMINACION_BAJA_LOGICA;
+    $gestionarTransaccion = !$pdo->inTransaction();
+
+    try {
+        if ($gestionarTransaccion) {
+            $pdo->beginTransaction();
+        }
+
+        if ($estrategia === USUARIO_ELIMINACION_DELETE) {
+            eliminarPasswordResetsUsuarioGestion($pdo, $usuarioId);
+
+            $stmt = $pdo->prepare('DELETE FROM usuarios WHERE id = :id');
+            $stmt->execute([':id' => $usuarioId]);
+
+            if ($stmt->rowCount() !== 1) {
+                throw new RuntimeException('No se ha podido eliminar el usuario.');
+            }
+        } else {
+            aplicarBajaLogicaUsuarioGestion($pdo, $usuarioId, $fecha);
+        }
+
+        registrarActividadSistema($pdo, [
+            'usuario_id' => $adminId,
+            'usuario' => $adminUsername !== '' ? $adminUsername : ROL_ALMACEN,
+            'tipo_evento' => 'usuario_eliminado',
+            'entidad' => 'usuario',
+            'entidad_id' => $usuarioId,
+            'entidad_codigo' => (string) ($usuario['username'] ?? ''),
+            'descripcion' => 'Usuario almacen eliminó el usuario ' . (string) ($usuario['username'] ?? ''),
+            'metadata' => [
+                'estrategia' => $estrategia,
+                'dependencias' => $dependencias,
+            ],
+            'fecha_evento' => $fecha,
+        ]);
+
+        if ($gestionarTransaccion) {
+            $pdo->commit();
+        }
+
+        return $estrategia;
+    } catch (Throwable $e) {
+        if ($gestionarTransaccion && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        if ($estrategia === USUARIO_ELIMINACION_DELETE && errorIntegridadEliminacionUsuario($e)) {
+            return eliminarUsuarioGestionConBajaLogica($pdo, $usuario, $admin, $fecha, [
+                [
+                    'tabla' => 'restriccion_bd',
+                    'columna' => 'foreign_key',
+                    'total' => 1,
+                ],
+            ]);
+        }
+
+        throw new RuntimeException('No se ha podido eliminar el usuario.', 0, $e);
+    }
+}
+
+function eliminarUsuarioGestionConBajaLogica(PDO $pdo, array $usuario, array $admin, DateTimeImmutable $fecha, array $dependencias): string
+{
+    $usuarioId = (int) ($usuario['id'] ?? 0);
+    if ($usuarioId <= 0) {
+        throw new RuntimeException('No se ha podido eliminar el usuario.');
+    }
+
+    $adminId = isset($admin['user_id']) ? (int) $admin['user_id'] : null;
+    $adminUsername = trim((string) ($admin['username'] ?? ''));
+    $gestionarTransaccion = !$pdo->inTransaction();
+
+    try {
+        if ($gestionarTransaccion) {
+            $pdo->beginTransaction();
+        }
+
+        aplicarBajaLogicaUsuarioGestion($pdo, $usuarioId, $fecha);
+
+        registrarActividadSistema($pdo, [
+            'usuario_id' => $adminId,
+            'usuario' => $adminUsername !== '' ? $adminUsername : ROL_ALMACEN,
+            'tipo_evento' => 'usuario_eliminado',
+            'entidad' => 'usuario',
+            'entidad_id' => $usuarioId,
+            'entidad_codigo' => (string) ($usuario['username'] ?? ''),
+            'descripcion' => 'Usuario almacen eliminó el usuario ' . (string) ($usuario['username'] ?? ''),
+            'metadata' => [
+                'estrategia' => USUARIO_ELIMINACION_BAJA_LOGICA,
+                'dependencias' => $dependencias,
+            ],
+            'fecha_evento' => $fecha,
+        ]);
+
+        if ($gestionarTransaccion) {
+            $pdo->commit();
+        }
+
+        return USUARIO_ELIMINACION_BAJA_LOGICA;
+    } catch (Throwable $e) {
+        if ($gestionarTransaccion && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw new RuntimeException('No se ha podido eliminar el usuario.', 0, $e);
+    }
+}
+
+function usuarioEliminacionBloqueada(array $usuario, array $admin): bool
+{
+    $usuarioId = (int) ($usuario['id'] ?? 0);
+    $adminId = (int) ($admin['user_id'] ?? 0);
+    $username = strtolower(trim((string) ($usuario['username'] ?? '')));
+
+    return $usuarioId <= 0
+        || ($adminId > 0 && $usuarioId === $adminId)
+        || $username === USUARIO_CIRCUITO_SOLICITUDES_USERNAME;
+}
+
+function dependenciasUsuarioGestionEliminacion(PDO $pdo, int $usuarioId): array
+{
+    if ($usuarioId <= 0) {
+        return [];
+    }
+
+    $referencias = [
+        ['tabla' => 'usuarios', 'columna' => 'aprobado_por_id'],
+        ['tabla' => 'actividad_sistema', 'columna' => 'usuario_id'],
+        ['tabla' => 'pedido_eventos', 'columna' => 'usuario_id'],
+        ['tabla' => 'pedidos', 'columna' => 'usuario_creacion_id'],
+        ['tabla' => 'pedidos', 'columna' => 'usuario_gestion_id'],
+        ['tabla' => 'inventario', 'columna' => 'usuario_confirmacion_id'],
+        ['tabla' => 'inventario', 'columna' => 'usuario_anulacion_id'],
+        ['tabla' => 'albaranes_salida', 'columna' => 'usuario_confirmacion_id'],
+    ];
+    $dependencias = [];
+
+    foreach ($referencias as $referencia) {
+        $tabla = (string) ($referencia['tabla'] ?? '');
+        $columna = (string) ($referencia['columna'] ?? '');
+        if (!tablaUsuarioGestionTieneColumna($pdo, $tabla, $columna)) {
+            continue;
+        }
+
+        $total = contarReferenciasUsuarioGestion($pdo, $tabla, $columna, $usuarioId);
+        if ($total <= 0) {
+            continue;
+        }
+
+        $dependencias[] = [
+            'tabla' => $tabla,
+            'columna' => $columna,
+            'total' => $total,
+        ];
+    }
+
+    return $dependencias;
+}
+
+function tablaUsuarioGestionTieneColumna(PDO $pdo, string $tabla, string $columna): bool
+{
+    static $cache = [];
+
+    if (!preg_match('/^[a-zA-Z0-9_]+$/', $tabla) || !preg_match('/^[a-zA-Z0-9_]+$/', $columna)) {
+        return false;
+    }
+
+    $clave = $tabla . '.' . $columna;
+    if (array_key_exists($clave, $cache)) {
+        return $cache[$clave];
+    }
+
+    try {
+        $stmt = $pdo->query('SHOW COLUMNS FROM `' . $tabla . '`');
+        $columnas = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+        $cache[$clave] = is_array($columnas) && in_array($columna, $columnas, true);
+    } catch (Throwable $e) {
+        $cache[$clave] = false;
+    }
+
+    return $cache[$clave];
+}
+
+function contarReferenciasUsuarioGestion(PDO $pdo, string $tabla, string $columna, int $usuarioId): int
+{
+    if (!preg_match('/^[a-zA-Z0-9_]+$/', $tabla) || !preg_match('/^[a-zA-Z0-9_]+$/', $columna)) {
+        return 0;
+    }
+
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM `' . $tabla . '` WHERE `' . $columna . '` = :usuario_id');
+    $stmt->execute([':usuario_id' => $usuarioId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
+function eliminarPasswordResetsUsuarioGestion(PDO $pdo, int $usuarioId): void
+{
+    if (!tablaUsuarioGestionTieneColumna($pdo, 'password_resets', 'usuario_id')) {
+        return;
+    }
+
+    $stmt = $pdo->prepare('DELETE FROM password_resets WHERE usuario_id = :usuario_id');
+    $stmt->execute([':usuario_id' => $usuarioId]);
+}
+
+function aplicarBajaLogicaUsuarioGestion(PDO $pdo, int $usuarioId, DateTimeImmutable $fecha): void
+{
+    $sets = [];
+    $params = [':id' => $usuarioId];
+
+    if (usuariosTieneColumna($pdo, 'activo')) {
+        $sets[] = 'activo = 0';
+    }
+    if (usuariosTieneColumna($pdo, 'aprobado')) {
+        $sets[] = 'aprobado = 1';
+    }
+    if (usuariosTieneColumna($pdo, 'rechazado')) {
+        $sets[] = 'rechazado = 0';
+    }
+    if (usuariosTieneColumna($pdo, 'actualizado_en')) {
+        $sets[] = 'actualizado_en = :actualizado_en';
+        $params[':actualizado_en'] = $fecha->format('Y-m-d H:i:s');
+    }
+
+    if ($sets === []) {
+        throw new RuntimeException('No se ha podido eliminar el usuario.');
+    }
+
+    $stmt = $pdo->prepare('UPDATE usuarios SET ' . implode(', ', $sets) . ' WHERE id = :id');
+    $stmt->execute($params);
+}
+
+function errorIntegridadEliminacionUsuario(Throwable $e): bool
+{
+    return $e instanceof PDOException && (string) $e->getCode() === '23000';
 }
 
 function aprobarUsuario(PDO $pdo, int $usuarioId, int $rolId, array $admin): void

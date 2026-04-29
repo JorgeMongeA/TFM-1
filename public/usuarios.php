@@ -27,6 +27,7 @@ $filtros = [
 ];
 $returnQueryActual = (string) ($_SERVER['QUERY_STRING'] ?? '');
 $puedeCambiarPasswordGestion = puedeGestionarUsuarios();
+$puedeEliminarUsuariosGestion = puedeGestionarUsuarios();
 $usuarios = [];
 $roles = [];
 $error = '';
@@ -37,6 +38,7 @@ unset($_SESSION['flash_usuarios']);
 
 if (is_array($flash)) {
     $mensaje = trim((string) ($flash['mensaje'] ?? ''));
+    $error = trim((string) ($flash['error'] ?? ''));
 }
 
 try {
@@ -50,16 +52,38 @@ try {
         $rolId = (int) ($_POST['rol_id'] ?? 0);
         $admin = obtenerContextoActividadActual();
 
-        if ($accion === 'aprobar') {
-            aprobarUsuario($pdo, $usuarioId, $rolId, $admin);
-            $_SESSION['flash_usuarios'] = ['mensaje' => 'Usuario aprobado y activado correctamente.'];
-        } elseif ($accion === 'rechazar') {
-            rechazarUsuario($pdo, $usuarioId, $admin);
-            $_SESSION['flash_usuarios'] = ['mensaje' => 'Solicitud rechazada correctamente.'];
-        } elseif ($accion === 'actualizar') {
-            $activo = (string) ($_POST['activo'] ?? '0') === '1';
-            actualizarEstadoYRolUsuario($pdo, $usuarioId, $rolId, $activo, $admin);
-            $_SESSION['flash_usuarios'] = ['mensaje' => 'Usuario actualizado correctamente.'];
+        try {
+            if ($accion === 'aprobar') {
+                aprobarUsuario($pdo, $usuarioId, $rolId, $admin);
+                $_SESSION['flash_usuarios'] = ['mensaje' => 'Usuario aprobado y activado correctamente.'];
+            } elseif ($accion === 'rechazar') {
+                rechazarUsuario($pdo, $usuarioId, $admin);
+                $_SESSION['flash_usuarios'] = ['mensaje' => 'Solicitud rechazada correctamente.'];
+            } elseif ($accion === 'actualizar') {
+                $activo = (string) ($_POST['activo'] ?? '0') === '1';
+                actualizarEstadoYRolUsuario($pdo, $usuarioId, $rolId, $activo, $admin);
+                $_SESSION['flash_usuarios'] = ['mensaje' => 'Usuario actualizado correctamente.'];
+            } elseif ($accion === 'eliminar') {
+                eliminarUsuarioGestion($pdo, $usuarioId, $admin);
+                $_SESSION['flash_usuarios'] = ['mensaje' => 'Usuario eliminado correctamente.'];
+            }
+        } catch (Throwable $e) {
+            error_log('[USUARIOS] Error ejecutando accion ' . $accion . ': ' . $e->getMessage());
+            $mensajeError = trim($e->getMessage());
+            $mensajesPublicos = [
+                'No puedes eliminar este usuario.',
+                'No se ha podido eliminar el usuario.',
+                'No puedes desactivar tu propia cuenta desde este panel.',
+                'El usuario indicado no existe.',
+                'El rol seleccionado no es valido.',
+                'Solo se pueden rechazar solicitudes pendientes.',
+            ];
+
+            $_SESSION['flash_usuarios'] = [
+                'error' => in_array($mensajeError, $mensajesPublicos, true)
+                    ? $mensajeError
+                    : ($accion === 'eliminar' ? 'No se ha podido eliminar el usuario.' : 'No se ha podido completar la operación.'),
+            ];
         }
 
         $query = trim((string) ($_POST['return_query'] ?? ''));
@@ -196,6 +220,14 @@ renderAppLayoutStart(
                                             <?php if ($puedeCambiarPasswordGestion): ?>
                                                 <a class="btn btn-sm btn-outline-secondary w-100 mt-2" href="<?= htmlspecialchars($urlCambioPassword, ENT_QUOTES, 'UTF-8') ?>">Cambiar contraseña</a>
                                             <?php endif; ?>
+                                            <?php if ($puedeEliminarUsuariosGestion): ?>
+                                                <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/usuarios.php" class="mt-2" onsubmit="return confirm('¿Seguro que quieres eliminar este usuario? Esta acción no se puede deshacer.');">
+                                                    <input type="hidden" name="accion" value="eliminar">
+                                                    <input type="hidden" name="usuario_id" value="<?= htmlspecialchars((string) ($usuario['id'] ?? 0), ENT_QUOTES, 'UTF-8') ?>">
+                                                    <input type="hidden" name="return_query" value="<?= htmlspecialchars((string) ($_SERVER['QUERY_STRING'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
+                                                    <button class="btn btn-sm btn-outline-danger w-100" type="submit">Eliminar</button>
+                                                </form>
+                                            <?php endif; ?>
                                         <?php else: ?>
                                             <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/usuarios.php" class="d-flex flex-column gap-2">
                                                 <input type="hidden" name="accion" value="actualizar">
@@ -216,6 +248,14 @@ renderAppLayoutStart(
                                             </form>
                                             <?php if ($puedeCambiarPasswordGestion): ?>
                                                 <a class="btn btn-sm btn-outline-secondary w-100 mt-2" href="<?= htmlspecialchars($urlCambioPassword, ENT_QUOTES, 'UTF-8') ?>">Cambiar contraseña</a>
+                                            <?php endif; ?>
+                                            <?php if ($puedeEliminarUsuariosGestion): ?>
+                                                <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/usuarios.php" class="mt-2" onsubmit="return confirm('¿Seguro que quieres eliminar este usuario? Esta acción no se puede deshacer.');">
+                                                    <input type="hidden" name="accion" value="eliminar">
+                                                    <input type="hidden" name="usuario_id" value="<?= htmlspecialchars((string) ($usuario['id'] ?? 0), ENT_QUOTES, 'UTF-8') ?>">
+                                                    <input type="hidden" name="return_query" value="<?= htmlspecialchars((string) ($_SERVER['QUERY_STRING'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
+                                                    <button class="btn btn-sm btn-outline-danger w-100" type="submit">Eliminar</button>
+                                                </form>
                                             <?php endif; ?>
                                         <?php endif; ?>
                                     </td>
