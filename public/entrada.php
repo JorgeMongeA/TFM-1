@@ -32,42 +32,20 @@ function obtenerSiguienteIdInventario(PDO $pdo): string
 
 function construirEtiquetaCentro(array $centro): string
 {
-    $nombre = trim((string) ($centro['nombre_centro'] ?? ''));
-    $codigo = trim((string) ($centro['codigo_centro'] ?? ''));
-
-    if ($nombre === '') {
-        return $codigo;
-    }
-
-    return $nombre . ' (' . $codigo . ')';
+    return construirEtiquetaCentroBusqueda($centro);
 }
 
 $pdo = null;
 $siguienteId = '';
-$centros = [];
 $error = '';
 
 try {
     $pdo = conectar();
     asegurarCentroDesconocido($pdo);
     $siguienteId = obtenerSiguienteIdInventario($pdo);
-    $centros = cargarCentrosParaSelector($pdo);
 } catch (Throwable $e) {
     $siguienteId = '';
-    $error = 'No se pudieron cargar los centros o el siguiente ID disponible.';
-}
-
-$centrosPorCodigo = [];
-$centrosPorEtiqueta = [];
-
-foreach ($centros as $centro) {
-    $codigoCentro = trim((string) ($centro['codigo_centro'] ?? ''));
-    if ($codigoCentro === '') {
-        continue;
-    }
-
-    $centrosPorCodigo[$codigoCentro] = $centro;
-    $centrosPorEtiqueta[construirEtiquetaCentro($centro)] = $centro;
+    $error = 'No se pudo cargar el siguiente ID disponible.';
 }
 
 $datos = [
@@ -114,15 +92,18 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     if ($error === '') {
         $centroSeleccionado = null;
 
-        if ($datos['codigo_centro'] !== '' && isset($centrosPorCodigo[$datos['codigo_centro']])) {
-            $centroSeleccionado = $centrosPorCodigo[$datos['codigo_centro']];
-        } elseif ($datos['centro_selector'] !== '' && isset($centrosPorEtiqueta[$datos['centro_selector']])) {
-            $centroSeleccionado = $centrosPorEtiqueta[$datos['centro_selector']];
-        } elseif (
+        if ($datos['codigo_centro'] !== '') {
+            $centroSeleccionado = buscarCentroPorCodigo($pdo, $datos['codigo_centro']);
+        }
+
+        $centroSelectorNormalizado = strtoupper($datos['centro_selector']);
+        if ($centroSeleccionado === null && (
             strtoupper($datos['centro_selector']) === CENTRO_DESCONOCIDO_NOMBRE
+            || $centroSelectorNormalizado === CENTRO_DESCONOCIDO_CODIGO . ' - ' . CENTRO_DESCONOCIDO_NOMBRE
+            || (str_contains($centroSelectorNormalizado, CENTRO_DESCONOCIDO_NOMBRE) && str_contains($centroSelectorNormalizado, CENTRO_DESCONOCIDO_CODIGO))
             || strtoupper($datos['colegio']) === CENTRO_DESCONOCIDO_NOMBRE
             || $datos['codigo_centro'] === CENTRO_DESCONOCIDO_CODIGO
-        ) {
+        )) {
             $centroSeleccionado = [
                 'codigo_centro' => CENTRO_DESCONOCIDO_CODIGO,
                 'nombre_centro' => CENTRO_DESCONOCIDO_NOMBRE,
@@ -217,16 +198,6 @@ if ($guardado) {
     }
 }
 
-$centrosJson = [];
-foreach ($centros as $centro) {
-    $centrosJson[] = [
-        'label' => construirEtiquetaCentro($centro),
-        'codigo' => (string) ($centro['codigo_centro'] ?? ''),
-        'nombre' => (string) ($centro['nombre_centro'] ?? ''),
-        'destino' => normalizarDestinoCentro($centro['destino'] ?? ''),
-    ];
-}
-
 renderAppLayoutStart(
     'Inventario - Entrada',
     'entrada',
@@ -251,7 +222,7 @@ renderAppLayoutStart(
         </div>
     <?php endif; ?>
 
-    <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/entrada.php" class="row g-3" autocomplete="off">
+    <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/entrada.php" class="row g-3" autocomplete="off" id="entrada-form">
         <div class="col-12 col-md-6 col-xl-3">
             <label class="form-label" for="id">ID</label>
             <input class="form-control" id="id" name="id" type="number" min="1" value="<?= htmlspecialchars($datos['id'], ENT_QUOTES, 'UTF-8') ?>">
@@ -262,21 +233,19 @@ renderAppLayoutStart(
         </div>
         <div class="col-12 col-xl-6">
             <label class="form-label" for="centro_selector">Centro *</label>
-            <input class="form-control" id="centro_selector" name="centro_selector" type="text" list="centros_disponibles" required value="<?= htmlspecialchars($datos['centro_selector'], ENT_QUOTES, 'UTF-8') ?>" placeholder="Escribe para buscar un centro">
-            <datalist id="centros_disponibles">
-                <?php foreach ($centros as $centro): ?>
-                    <option value="<?= htmlspecialchars(construirEtiquetaCentro($centro), ENT_QUOTES, 'UTF-8') ?>"></option>
-                <?php endforeach; ?>
-            </datalist>
-            <div class="form-text">Puedes buscar por nombre. Incluye la opción DESCONOCIDO (000000).</div>
+            <div class="centro-autocomplete">
+                <input class="form-control" id="centro_selector" name="centro_selector" type="text" required autocomplete="off" value="<?= htmlspecialchars($datos['centro_selector'], ENT_QUOTES, 'UTF-8') ?>" placeholder="Escribe para buscar un centro" aria-autocomplete="list" aria-expanded="false" aria-controls="centro_selector_results">
+                <div class="centro-autocomplete-results d-none" id="centro_selector_results" role="listbox"></div>
+            </div>
+            <div class="form-text">Busca por nombre, codigo o localidad.</div>
         </div>
         <div class="col-12 col-md-6">
             <label class="form-label" for="colegio">Centro seleccionado *</label>
-            <input class="form-control bg-light" id="colegio" name="colegio" type="text" required readonly value="<?= htmlspecialchars($datos['colegio'], ENT_QUOTES, 'UTF-8') ?>">
+            <input class="form-control bg-light" id="colegio" name="colegio" type="text" required readonly autocomplete="off" value="<?= htmlspecialchars($datos['colegio'], ENT_QUOTES, 'UTF-8') ?>">
         </div>
         <div class="col-12 col-md-6">
             <label class="form-label" for="codigo_centro">Código centro *</label>
-            <input class="form-control bg-light" id="codigo_centro" name="codigo_centro" type="text" required readonly value="<?= htmlspecialchars($datos['codigo_centro'], ENT_QUOTES, 'UTF-8') ?>">
+            <input class="form-control bg-light" id="codigo_centro" name="codigo_centro" type="text" required readonly autocomplete="off" value="<?= htmlspecialchars($datos['codigo_centro'], ENT_QUOTES, 'UTF-8') ?>">
         </div>
         <div class="col-12 col-md-6 col-xl-3">
             <label class="form-label" for="ubicacion">Ubicación *</label>
@@ -313,38 +282,226 @@ renderAppLayoutStart(
 </section>
 
 <script>
-const centrosEntrada = <?= json_encode($centrosJson, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const centrosBuscarUrl = <?= json_encode(BASE_URL . '/centros_buscar.php', JSON_UNESCAPED_SLASHES) ?>;
+const centroInicial = <?= json_encode([
+    'codigo_centro' => $datos['codigo_centro'],
+    'nombre_centro' => $datos['colegio'],
+    'localidad' => '',
+    'destino' => $datos['destino'],
+    'label' => $datos['centro_selector'],
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const entradaForm = document.getElementById('entrada-form');
 const centroSelectorInput = document.getElementById('centro_selector');
 const centroNombreInput = document.getElementById('colegio');
 const centroCodigoInput = document.getElementById('codigo_centro');
 const centroDestinoInput = document.getElementById('destino');
+const centroResultados = document.getElementById('centro_selector_results');
+let centroSeleccionado = centroInicial.codigo_centro ? centroInicial : null;
+let busquedaTimer = null;
+let busquedaAbortController = null;
+let opcionActiva = -1;
 
-function aplicarCentroSeleccionado(valor) {
-    const centro = centrosEntrada.find((item) => item.label === valor);
+function normalizarDestinoEntrada(destino) {
+    return ['EDV', 'EPL'].includes(destino) ? destino : '';
+}
 
-    if (!centro) {
-        centroNombreInput.value = '';
-        centroCodigoInput.value = '';
-        if (centroDestinoInput) {
-            centroDestinoInput.value = '';
-        }
+function aplicarDestinoCentro(destino) {
+    if (!centroDestinoInput) {
         return;
     }
 
-    centroNombreInput.value = centro.nombre;
-    centroCodigoInput.value = centro.codigo;
-    if (centroDestinoInput) {
-        centroDestinoInput.value = ['EDV', 'EPL'].includes(centro.destino) ? centro.destino : '';
-    }
+    const destinoNormalizado = normalizarDestinoEntrada(destino);
+    centroDestinoInput.value = destinoNormalizado;
+    centroDestinoInput.dataset.destinoCentro = destinoNormalizado;
 }
 
-if (centroSelectorInput) {
-    aplicarCentroSeleccionado(centroSelectorInput.value);
-    centroSelectorInput.addEventListener('input', (event) => {
-        aplicarCentroSeleccionado(event.target.value);
+function cerrarResultadosCentro() {
+    if (!centroResultados) {
+        return;
+    }
+
+    centroResultados.classList.add('d-none');
+    centroResultados.innerHTML = '';
+    centroSelectorInput.setAttribute('aria-expanded', 'false');
+    opcionActiva = -1;
+}
+
+function actualizarOpcionActiva() {
+    const opciones = Array.from(centroResultados.querySelectorAll('.centro-autocomplete-option'));
+    opciones.forEach((opcion, indice) => {
+        const activo = indice === opcionActiva;
+        opcion.classList.toggle('is-active', activo);
+        opcion.setAttribute('aria-selected', activo ? 'true' : 'false');
     });
-    centroSelectorInput.addEventListener('change', (event) => {
-        aplicarCentroSeleccionado(event.target.value);
+}
+
+function seleccionarCentro(centro) {
+    centroSeleccionado = centro;
+    centroSelectorInput.value = centro.label || '';
+    centroNombreInput.value = centro.nombre_centro || '';
+    centroCodigoInput.value = centro.codigo_centro || '';
+    aplicarDestinoCentro(centro.destino || '');
+    centroSelectorInput.setCustomValidity('');
+    cerrarResultadosCentro();
+}
+
+function limpiarCentroSeleccionado() {
+    centroSeleccionado = null;
+    centroNombreInput.value = '';
+    centroCodigoInput.value = '';
+    aplicarDestinoCentro('');
+}
+
+function pintarResultadosCentro(centros) {
+    centroResultados.innerHTML = '';
+    opcionActiva = -1;
+
+    if (!Array.isArray(centros) || centros.length === 0) {
+        const vacio = document.createElement('div');
+        vacio.className = 'centro-autocomplete-empty';
+        vacio.textContent = 'No hay centros que coincidan.';
+        centroResultados.appendChild(vacio);
+        centroResultados.classList.remove('d-none');
+        centroSelectorInput.setAttribute('aria-expanded', 'true');
+        return;
+    }
+
+    centros.forEach((centro) => {
+        const opcion = document.createElement('button');
+        opcion.type = 'button';
+        opcion.className = 'centro-autocomplete-option';
+        opcion.setAttribute('role', 'option');
+        opcion.setAttribute('aria-selected', 'false');
+
+        const nombre = document.createElement('span');
+        nombre.className = 'centro-autocomplete-option-name';
+        nombre.textContent = centro.codigo_centro === '000000' ? (centro.label || '') : (centro.nombre_centro || centro.label || '');
+
+        const meta = document.createElement('span');
+        meta.className = 'centro-autocomplete-option-meta';
+        meta.textContent = [centro.codigo_centro, centro.localidad, centro.destino].filter(Boolean).join(' - ');
+
+        opcion.appendChild(nombre);
+        opcion.appendChild(meta);
+        opcion.addEventListener('click', () => seleccionarCentro(centro));
+        centroResultados.appendChild(opcion);
+    });
+
+    centroResultados.classList.remove('d-none');
+    centroSelectorInput.setAttribute('aria-expanded', 'true');
+}
+
+function buscarCentrosEntrada(query) {
+    if (busquedaAbortController) {
+        busquedaAbortController.abort();
+    }
+
+    busquedaAbortController = new AbortController();
+    const params = new URLSearchParams({ q: query });
+
+    fetch(`${centrosBuscarUrl}?${params.toString()}`, {
+        headers: { Accept: 'application/json' },
+        signal: busquedaAbortController.signal,
+    })
+        .then((response) => {
+            if (!response.ok) {
+                throw new Error('Respuesta no valida');
+            }
+
+            return response.json();
+        })
+        .then((payload) => {
+            pintarResultadosCentro(payload.success ? payload.results : []);
+        })
+        .catch((error) => {
+            if (error.name !== 'AbortError') {
+                pintarResultadosCentro([]);
+            }
+        });
+}
+
+function programarBusquedaCentros() {
+    const query = centroSelectorInput.value.trim();
+
+    window.clearTimeout(busquedaTimer);
+    if (query.length > 0 && query.length < 2) {
+        cerrarResultadosCentro();
+        return;
+    }
+
+    busquedaTimer = window.setTimeout(() => buscarCentrosEntrada(query), 180);
+}
+
+if (centroSelectorInput && centroNombreInput && centroCodigoInput && centroResultados) {
+    if (centroSeleccionado) {
+        aplicarDestinoCentro(centroSeleccionado.destino || '');
+    }
+
+    centroSelectorInput.addEventListener('input', () => {
+        centroSelectorInput.setCustomValidity('');
+        limpiarCentroSeleccionado();
+        programarBusquedaCentros();
+    });
+
+    centroSelectorInput.addEventListener('focus', () => {
+        programarBusquedaCentros();
+    });
+
+    centroSelectorInput.addEventListener('keydown', (event) => {
+        const opciones = Array.from(centroResultados.querySelectorAll('.centro-autocomplete-option'));
+        if (centroResultados.classList.contains('d-none') || opciones.length === 0) {
+            return;
+        }
+
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            opcionActiva = Math.min(opciones.length - 1, opcionActiva + 1);
+            actualizarOpcionActiva();
+        } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            opcionActiva = Math.max(0, opcionActiva - 1);
+            actualizarOpcionActiva();
+        } else if (event.key === 'Enter' && opcionActiva >= 0) {
+            event.preventDefault();
+            opciones[opcionActiva].click();
+        } else if (event.key === 'Escape') {
+            cerrarResultadosCentro();
+        }
+    });
+
+    centroResultados.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!centroSelectorInput.contains(event.target) && !centroResultados.contains(event.target)) {
+            cerrarResultadosCentro();
+        }
+    });
+}
+
+if (centroDestinoInput) {
+    centroDestinoInput.addEventListener('change', () => {
+        if (centroCodigoInput.value.trim() !== '') {
+            centroDestinoInput.value = centroDestinoInput.dataset.destinoCentro || '';
+        }
+    });
+}
+
+if (entradaForm && centroSelectorInput && centroCodigoInput) {
+    entradaForm.addEventListener('submit', (event) => {
+        if (centroCodigoInput.value.trim() === '') {
+            event.preventDefault();
+            centroSelectorInput.setCustomValidity('Selecciona un centro de la lista.');
+            centroSelectorInput.reportValidity();
+            return;
+        }
+
+        if (centroSeleccionado && centroDestinoInput) {
+            aplicarDestinoCentro(centroSeleccionado.destino || '');
+        }
+
+        centroSelectorInput.setCustomValidity('');
     });
 }
 </script>

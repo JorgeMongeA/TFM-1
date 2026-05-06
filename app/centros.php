@@ -84,6 +84,68 @@ function cargarCentrosParaSelector(PDO $pdo): array
     return $stmt->fetchAll();
 }
 
+function construirEtiquetaCentroBusqueda(array $centro): string
+{
+    $codigo = trim((string) ($centro['codigo_centro'] ?? ''));
+    $nombre = trim((string) ($centro['nombre_centro'] ?? ''));
+
+    if ($codigo === CENTRO_DESCONOCIDO_CODIGO) {
+        return CENTRO_DESCONOCIDO_CODIGO . ' - ' . CENTRO_DESCONOCIDO_NOMBRE;
+    }
+
+    if ($nombre === '') {
+        return $codigo;
+    }
+
+    return $nombre . ' (' . $codigo . ')';
+}
+
+function buscarCentrosParaAutocomplete(PDO $pdo, string $texto, int $limite = 20): array
+{
+    asegurarCentroDesconocido($pdo);
+
+    $texto = limpiarCampoCsv($texto);
+    $limite = max(1, min(50, $limite));
+    $longitudTexto = function_exists('mb_strlen') ? mb_strlen($texto) : strlen($texto);
+
+    if ($longitudTexto < 2) {
+        $sql = 'SELECT codigo_centro, nombre_centro, ciudad, destino
+                FROM centros
+                WHERE codigo_centro = :codigo_desconocido_where
+                ORDER BY nombre_centro ASC, codigo_centro ASC
+                LIMIT :limite';
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->bindValue(':codigo_desconocido_where', CENTRO_DESCONOCIDO_CODIGO);
+        $stmt->bindValue(':limite', $limite, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll();
+    }
+
+    $like = '%' . $texto . '%';
+    $sql = 'SELECT codigo_centro, nombre_centro, ciudad, destino
+            FROM centros
+            WHERE codigo_centro LIKE :codigo_centro
+               OR nombre_centro LIKE :nombre_centro
+               OR ciudad LIKE :ciudad
+            ORDER BY
+                CASE WHEN codigo_centro = :codigo_desconocido_order THEN 0 ELSE 1 END ASC,
+                nombre_centro ASC,
+                codigo_centro ASC
+            LIMIT :limite';
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->bindValue(':codigo_centro', $like);
+    $stmt->bindValue(':nombre_centro', $like);
+    $stmt->bindValue(':ciudad', $like);
+    $stmt->bindValue(':codigo_desconocido_order', CENTRO_DESCONOCIDO_CODIGO);
+    $stmt->bindValue(':limite', $limite, PDO::PARAM_INT);
+    $stmt->execute();
+
+    return $stmt->fetchAll();
+}
+
 function asegurarCentroDesconocido(PDO $pdo): void
 {
     $stmt = $pdo->prepare('SELECT codigo_centro FROM centros WHERE codigo_centro = :codigo_centro LIMIT 1');

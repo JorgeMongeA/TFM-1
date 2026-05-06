@@ -106,6 +106,62 @@ select:focus {
     box-shadow: 0 0 0 3px rgba(31, 79, 138, 0.14);
 }
 
+.centro-autocomplete {
+    position: relative;
+}
+
+.centro-autocomplete-results {
+    position: absolute;
+    z-index: 1050;
+    top: calc(100% + 4px);
+    right: 0;
+    left: 0;
+    max-height: 280px;
+    overflow-y: auto;
+    border: 1px solid #c8d3df;
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 14px 28px rgba(15, 23, 42, 0.14);
+}
+
+.centro-autocomplete-option {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    border: 0;
+    border-bottom: 1px solid #edf1f5;
+    border-radius: 0;
+    background: #ffffff;
+    color: var(--text);
+    text-align: left;
+}
+
+.centro-autocomplete-option:last-child {
+    border-bottom: 0;
+}
+
+.centro-autocomplete-option:hover,
+.centro-autocomplete-option.is-active {
+    background: #eef4fb;
+}
+
+.centro-autocomplete-option-name {
+    display: block;
+    font-weight: 700;
+}
+
+.centro-autocomplete-option-meta {
+    display: block;
+    color: var(--text-soft);
+    font-size: 12px;
+}
+
+.centro-autocomplete-empty {
+    padding: 10px 12px;
+    color: var(--text-soft);
+    font-size: 14px;
+}
+
 .btn-primary,
 .btn-outline-primary,
 .btn-outline-secondary,
