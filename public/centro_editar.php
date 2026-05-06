@@ -35,6 +35,11 @@ $datos = [
     'codigo_centro' => '',
     'nombre_centro' => '',
     'ciudad' => '',
+    'codigo_congregacion' => '',
+    'congregacion' => '',
+    'entrada' => '',
+    'almacen' => '',
+    'destino' => '',
     'tipo' => '',
     'codigo_grupo' => '',
 ];
@@ -44,7 +49,7 @@ if ($error === '' && $pdo instanceof PDO && (($_SERVER['REQUEST_METHOD'] ?? 'GET
     if ($centro === null) {
         $error = 'El centro solicitado no existe.';
     } else {
-        $datos = $centro;
+        $datos = array_merge($datos, $centro);
     }
 }
 
@@ -96,8 +101,28 @@ renderAppLayoutStart(
                 <input class="form-control" id="nombre_centro" name="nombre_centro" type="text" required value="<?= htmlspecialchars($datos['nombre_centro'], ENT_QUOTES, 'UTF-8') ?>">
             </div>
             <div class="col-12 col-md-6">
-                <label class="form-label" for="ciudad">Ciudad</label>
+                <label class="form-label" for="ciudad">Localidad</label>
                 <input class="form-control" id="ciudad" name="ciudad" type="text" value="<?= htmlspecialchars($datos['ciudad'], ENT_QUOTES, 'UTF-8') ?>">
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label" for="codigo_congregacion">Codigo congregacion</label>
+                <input class="form-control" id="codigo_congregacion" name="codigo_congregacion" type="text" value="<?= htmlspecialchars($datos['codigo_congregacion'], ENT_QUOTES, 'UTF-8') ?>">
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label" for="congregacion">Congregacion</label>
+                <input class="form-control" id="congregacion" name="congregacion" type="text" value="<?= htmlspecialchars($datos['congregacion'], ENT_QUOTES, 'UTF-8') ?>">
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label" for="entrada">Entrada</label>
+                <input class="form-control" id="entrada" name="entrada" type="text" value="<?= htmlspecialchars($datos['entrada'], ENT_QUOTES, 'UTF-8') ?>">
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label" for="almacen">Almacen</label>
+                <input class="form-control" id="almacen" name="almacen" type="text" value="<?= htmlspecialchars($datos['almacen'], ENT_QUOTES, 'UTF-8') ?>">
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label" for="destino">Destino</label>
+                <input class="form-control" id="destino" name="destino" type="text" value="<?= htmlspecialchars($datos['destino'], ENT_QUOTES, 'UTF-8') ?>">
             </div>
             <div class="col-12 col-md-3">
                 <label class="form-label" for="tipo">Tipo</label>

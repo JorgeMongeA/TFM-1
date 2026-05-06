@@ -27,13 +27,13 @@ try {
 
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $config = cargarConfiguracion();
-        $csvUrl = trim((string) ($config['centros_csv_url'] ?? ''));
+        $scriptUrl = obtenerUrlSyncCentrosGoogleSheets($config);
 
-        if ($csvUrl === '') {
-            throw new RuntimeException('Falta la clave centros_csv_url en config/config.php.');
+        if ($scriptUrl === '') {
+            throw new RuntimeException('Falta la clave google_inventory_sync_url o centros_google_sync_url en config/config.php.');
         }
 
-        $resultadoSincronizacion = sincronizarCentrosDesdeCsv($pdo, $csvUrl);
+        $resultadoSincronizacion = sincronizarCentrosDesdeAppsScript($pdo, $scriptUrl, obtenerTokenSyncCentrosGoogleSheets());
     }
 
     $registros = cargarCentros($pdo, $filtros);
@@ -63,7 +63,7 @@ renderAppLayoutStart(
                         <input class="form-control" id="nombre_centro" name="nombre_centro" type="text" value="<?= htmlspecialchars($filtros['nombre_centro'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="col-12 col-md-6 col-xl-2">
-                        <label class="form-label" for="ciudad">Ciudad</label>
+                        <label class="form-label" for="ciudad">Localidad</label>
                         <input class="form-control" id="ciudad" name="ciudad" type="text" value="<?= htmlspecialchars($filtros['ciudad'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="col-12 col-md-6 col-xl-2">
@@ -73,6 +73,14 @@ renderAppLayoutStart(
                     <div class="col-12 col-md-6 col-xl-3">
                         <label class="form-label" for="codigo_grupo">Código grupo</label>
                         <input class="form-control" id="codigo_grupo" name="codigo_grupo" type="text" value="<?= htmlspecialchars($filtros['codigo_grupo'], ENT_QUOTES, 'UTF-8') ?>">
+                    </div>
+                    <div class="col-12 col-md-6 col-xl-3">
+                        <label class="form-label" for="congregacion">Congregación</label>
+                        <input class="form-control" id="congregacion" name="congregacion" type="text" value="<?= htmlspecialchars($filtros['congregacion'], ENT_QUOTES, 'UTF-8') ?>">
+                    </div>
+                    <div class="col-12 col-md-6 col-xl-2">
+                        <label class="form-label" for="destino">Destino</label>
+                        <input class="form-control" id="destino" name="destino" type="text" value="<?= htmlspecialchars($filtros['destino'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="col-12 d-flex flex-wrap gap-2">
                         <button class="btn btn-primary mt-0" type="submit">Filtrar</button>

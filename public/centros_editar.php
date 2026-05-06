@@ -71,7 +71,7 @@ renderAppLayoutStart(
                 <input class="form-control" id="nombre_centro" name="nombre_centro" type="text" value="<?= htmlspecialchars($filtros['nombre_centro'], ENT_QUOTES, 'UTF-8') ?>">
             </div>
             <div class="col-12 col-md-6 col-xl-2">
-                <label class="form-label" for="ciudad">Ciudad</label>
+                <label class="form-label" for="ciudad">Localidad</label>
                 <input class="form-control" id="ciudad" name="ciudad" type="text" value="<?= htmlspecialchars($filtros['ciudad'], ENT_QUOTES, 'UTF-8') ?>">
             </div>
             <div class="col-12 col-md-6 col-xl-2">
@@ -81,6 +81,14 @@ renderAppLayoutStart(
             <div class="col-12 col-md-6 col-xl-3">
                 <label class="form-label" for="codigo_grupo">Código grupo</label>
                 <input class="form-control" id="codigo_grupo" name="codigo_grupo" type="text" value="<?= htmlspecialchars($filtros['codigo_grupo'], ENT_QUOTES, 'UTF-8') ?>">
+            </div>
+            <div class="col-12 col-md-6 col-xl-3">
+                <label class="form-label" for="congregacion">Congregación</label>
+                <input class="form-control" id="congregacion" name="congregacion" type="text" value="<?= htmlspecialchars($filtros['congregacion'], ENT_QUOTES, 'UTF-8') ?>">
+            </div>
+            <div class="col-12 col-md-6 col-xl-2">
+                <label class="form-label" for="destino">Destino</label>
+                <input class="form-control" id="destino" name="destino" type="text" value="<?= htmlspecialchars($filtros['destino'], ENT_QUOTES, 'UTF-8') ?>">
             </div>
             <div class="col-12 d-flex flex-wrap gap-2">
                 <button class="btn btn-primary mt-0" type="submit">Filtrar</button>
@@ -111,22 +119,23 @@ renderAppLayoutStart(
                 <tbody>
                     <?php foreach ($registros as $fila): ?>
                         <tr>
-                            <td><?= htmlspecialchars((string) ($fila['codigo_centro'] ?? '-'), ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= htmlspecialchars((string) (($fila['nombre_centro'] ?? '') !== '' ? $fila['nombre_centro'] : '-'), ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= htmlspecialchars((string) (($fila['ciudad'] ?? '') !== '' ? $fila['ciudad'] : '-'), ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= htmlspecialchars((string) (($fila['tipo'] ?? '') !== '' ? $fila['tipo'] : '-'), ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= htmlspecialchars((string) (($fila['codigo_grupo'] ?? '') !== '' ? $fila['codigo_grupo'] : '-'), ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= htmlspecialchars((string) (($fila['actualizado_en'] ?? '') !== '' ? $fila['actualizado_en'] : '-'), ENT_QUOTES, 'UTF-8') ?></td>
-                            <td>
-                                <div class="d-flex flex-wrap gap-2">
-                                    <a class="btn btn-sm btn-outline-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/centro_editar.php?codigo_centro=<?= rawurlencode((string) $fila['codigo_centro']) ?>">Editar</a>
-                                    <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/centros_editar.php" onsubmit="return confirm('¿Eliminar este centro?');">
-                                        <input type="hidden" name="accion" value="eliminar">
-                                        <input type="hidden" name="codigo_centro" value="<?= htmlspecialchars((string) $fila['codigo_centro'], ENT_QUOTES, 'UTF-8') ?>">
-                                        <button class="btn btn-sm btn-outline-danger mt-0" type="submit">Eliminar</button>
-                                    </form>
-                                </div>
-                            </td>
+                            <?php foreach (array_keys($columnasTabla) as $columna): ?>
+                                <?php if ($columna === 'acciones'): ?>
+                                    <td>
+                                        <div class="d-flex flex-wrap gap-2">
+                                            <a class="btn btn-sm btn-outline-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/centro_editar.php?codigo_centro=<?= rawurlencode((string) $fila['codigo_centro']) ?>">Editar</a>
+                                            <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/centros_editar.php" onsubmit="return confirm('¿Eliminar este centro?');">
+                                                <input type="hidden" name="accion" value="eliminar">
+                                                <input type="hidden" name="codigo_centro" value="<?= htmlspecialchars((string) $fila['codigo_centro'], ENT_QUOTES, 'UTF-8') ?>">
+                                                <button class="btn btn-sm btn-outline-danger mt-0" type="submit">Eliminar</button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                <?php else: ?>
+                                    <?php $valor = $fila[$columna] ?? ''; ?>
+                                    <td><?= htmlspecialchars((string) ($valor !== null && $valor !== '' ? $valor : '-'), ENT_QUOTES, 'UTF-8') ?></td>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>

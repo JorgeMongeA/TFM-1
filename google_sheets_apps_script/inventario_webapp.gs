@@ -1,5 +1,6 @@
 const INVENTARIO_SHEET_NAME = 'inventario';
 const HISTORICO_SHEET_NAME = 'historico';
+const CENTROS_NUEVO_ORIGEN_SHEET_NAME = 'centros';
 const SECRET_TOKEN = 'congregaciones_sync_2026';
 
 function doGet(e) {
@@ -52,6 +53,11 @@ function handleRequest_(e, method) {
         return jsonOutput_({
           success: true,
           payload: readHistoryRows_(),
+        });
+      case 'get_centros_nuevo_origen':
+        return jsonOutput_({
+          success: true,
+          payload: readCentrosNuevoOrigenRows_(),
         });
       case 'append_inventory_rows':
         return jsonOutput_(appendInventoryRows_(payload));
@@ -207,6 +213,115 @@ function readHistoryRows_() {
       empresa_recogida: normalizeCell_(row[10]),
       total_bultos: normalizeCell_(row[11]),
     }));
+}
+
+function readCentrosNuevoOrigenRows_() {
+  const sheet = getCentrosNuevoOrigenSheet_();
+  const lastRow = sheet.getLastRow();
+  const lastColumn = sheet.getLastColumn();
+
+  if (lastRow < 2 || lastColumn < 1) {
+    return [];
+  }
+
+  const values = sheet.getRange(1, 1, lastRow, lastColumn).getDisplayValues();
+  const headers = values[0].map(normalizeHeader_);
+  const index = buildHeaderIndex_(headers);
+
+  return values
+    .slice(1)
+    .map(row => normalizeCentroNuevoOrigenRow_(row, index))
+    .filter(row => row.codigo_centro !== '');
+}
+
+function getCentrosNuevoOrigenSheet_() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const exactSheet = spreadsheet.getSheetByName(CENTROS_NUEVO_ORIGEN_SHEET_NAME);
+  if (exactSheet) {
+    return exactSheet;
+  }
+
+  const normalizedName = normalizeCell_(CENTROS_NUEVO_ORIGEN_SHEET_NAME).toLowerCase();
+  const matchedSheet = spreadsheet
+    .getSheets()
+    .find(sheet => normalizeCell_(sheet.getName()).toLowerCase() === normalizedName);
+
+  if (!matchedSheet) {
+    throw new Error('No existe la pestana "' + CENTROS_NUEVO_ORIGEN_SHEET_NAME + '".');
+  }
+
+  return matchedSheet;
+}
+
+function normalizeCentroNuevoOrigenRow_(row, index) {
+  const almacen = getHeaderValue_(row, index, 'almacen');
+
+  return {
+    codigo_centro: getHeaderValue_(row, index, 'codigocentro'),
+    nombre_centro: getHeaderValue_(row, index, 'nombrecentro'),
+    localidad: getHeaderValue_(row, index, 'localidad'),
+    codigo_congregacion: getHeaderValue_(row, index, 'codigocongregacion'),
+    congregacion: getHeaderValue_(row, index, 'congregacion'),
+    entrada: getHeaderValue_(row, index, 'entrada'),
+    almacen: almacen,
+    destino: calcularDestinoCentro_(almacen),
+  };
+}
+
+function buildHeaderIndex_(headers) {
+  return headers.reduce((acc, header, index) => {
+    if (header !== '' && acc[header] === undefined) {
+      acc[header] = index;
+    }
+    return acc;
+  }, {});
+}
+
+function getHeaderValue_(row, index, headerKey) {
+  const columnIndex = index[headerKey];
+  if (columnIndex === undefined) {
+    return '';
+  }
+
+  return normalizeCell_(row[columnIndex]);
+}
+
+function normalizeHeader_(value) {
+  return normalizeCell_(value)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function calcularDestinoCentro_(almacen) {
+  const codigoAlmacen = normalizeCodigoAlmacenCentro_(almacen);
+
+  if (codigoAlmacen === '1901') {
+    return 'EDV';
+  }
+
+  if (codigoAlmacen === '1905') {
+    return 'EPL';
+  }
+
+  return '';
+}
+
+function normalizeCodigoAlmacenCentro_(almacen) {
+  const texto = normalizeCell_(almacen).replace(/\s+/g, '');
+  const decimalMatch = texto.match(/^(\d+)(?:[.,]0+)?$/);
+
+  if (decimalMatch) {
+    return decimalMatch[1];
+  }
+
+  const knownCodeMatch = texto.match(/(1901|1905)/);
+  if (knownCodeMatch) {
+    return knownCodeMatch[1];
+  }
+
+  return texto.replace(/\D+/g, '');
 }
 
 function appendInventoryRows_(rows) {
