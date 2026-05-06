@@ -126,6 +126,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $centroSeleccionado = [
                 'codigo_centro' => CENTRO_DESCONOCIDO_CODIGO,
                 'nombre_centro' => CENTRO_DESCONOCIDO_NOMBRE,
+                'destino' => '',
             ];
         }
 
@@ -134,6 +135,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         } else {
             $datos['colegio'] = (string) ($centroSeleccionado['nombre_centro'] ?? '');
             $datos['codigo_centro'] = (string) ($centroSeleccionado['codigo_centro'] ?? '');
+            $datos['destino'] = normalizarDestinoCentro($centroSeleccionado['destino'] ?? '');
             $datos['centro_selector'] = construirEtiquetaCentro($centroSeleccionado);
         }
     }
@@ -221,6 +223,7 @@ foreach ($centros as $centro) {
         'label' => construirEtiquetaCentro($centro),
         'codigo' => (string) ($centro['codigo_centro'] ?? ''),
         'nombre' => (string) ($centro['nombre_centro'] ?? ''),
+        'destino' => normalizarDestinoCentro($centro['destino'] ?? ''),
     ];
 }
 
@@ -314,6 +317,7 @@ const centrosEntrada = <?= json_encode($centrosJson, JSON_UNESCAPED_UNICODE | JS
 const centroSelectorInput = document.getElementById('centro_selector');
 const centroNombreInput = document.getElementById('colegio');
 const centroCodigoInput = document.getElementById('codigo_centro');
+const centroDestinoInput = document.getElementById('destino');
 
 function aplicarCentroSeleccionado(valor) {
     const centro = centrosEntrada.find((item) => item.label === valor);
@@ -321,11 +325,17 @@ function aplicarCentroSeleccionado(valor) {
     if (!centro) {
         centroNombreInput.value = '';
         centroCodigoInput.value = '';
+        if (centroDestinoInput) {
+            centroDestinoInput.value = '';
+        }
         return;
     }
 
     centroNombreInput.value = centro.nombre;
     centroCodigoInput.value = centro.codigo;
+    if (centroDestinoInput) {
+        centroDestinoInput.value = ['EDV', 'EPL'].includes(centro.destino) ? centro.destino : '';
+    }
 }
 
 if (centroSelectorInput) {

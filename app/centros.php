@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 const CENTRO_DESCONOCIDO_CODIGO = '000000';
 const CENTRO_DESCONOCIDO_NOMBRE = 'DESCONOCIDO';
+const CENTROS_GOOGLE_SHEETS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbzGdKiAIX3CcsJnSRRcqLwmCqK5T7-7AYXnegfnByEwMfLFFs0Ane0U4044L81LzHO9iw/exec';
 
 function columnasCentrosTabla(bool $conAcciones = false): array
 {
@@ -22,8 +23,6 @@ function columnasCentrosTabla(bool $conAcciones = false): array
         'entrada' => 'Entrada',
         'almacen' => 'Almacen',
         'destino' => 'Destino',
-        'tipo' => 'Tipo',
-        'codigo_grupo' => 'Codigo grupo',
         'actualizado_en' => 'Actualizado en',
     ];
 
@@ -36,7 +35,7 @@ function columnasCentrosTabla(bool $conAcciones = false): array
 
 function filtrosCentrosPermitidos(): array
 {
-    return ['codigo_centro', 'nombre_centro', 'ciudad', 'tipo', 'codigo_grupo', 'congregacion', 'destino'];
+    return ['codigo_centro', 'nombre_centro', 'ciudad', 'congregacion', 'destino'];
 }
 
 function leerFiltrosCentrosDesdeRequest(array $source): array
@@ -52,7 +51,7 @@ function leerFiltrosCentrosDesdeRequest(array $source): array
 
 function cargarCentros(PDO $pdo, array $filtros = []): array
 {
-    $sql = 'SELECT codigo_centro, nombre_centro, ciudad, codigo_congregacion, congregacion, entrada, almacen, destino, tipo, codigo_grupo, actualizado_en FROM centros';
+    $sql = 'SELECT codigo_centro, nombre_centro, ciudad, codigo_congregacion, congregacion, entrada, almacen, destino, actualizado_en FROM centros';
     $where = [];
     $params = [];
 
@@ -81,7 +80,7 @@ function cargarCentrosParaSelector(PDO $pdo): array
 {
     asegurarCentroDesconocido($pdo);
 
-    $stmt = $pdo->query('SELECT codigo_centro, nombre_centro, ciudad FROM centros ORDER BY nombre_centro ASC, codigo_centro ASC');
+    $stmt = $pdo->query('SELECT codigo_centro, nombre_centro, ciudad, destino FROM centros ORDER BY nombre_centro ASC, codigo_centro ASC');
     return $stmt->fetchAll();
 }
 
@@ -91,19 +90,37 @@ function asegurarCentroDesconocido(PDO $pdo): void
     $stmt->execute([':codigo_centro' => CENTRO_DESCONOCIDO_CODIGO]);
 
     if ($stmt->fetch() !== false) {
+        $update = $pdo->prepare(
+            'UPDATE centros
+             SET nombre_centro = :nombre_centro,
+                 ciudad = NULL,
+                 codigo_congregacion = NULL,
+                 congregacion = NULL,
+                 entrada = NULL,
+                 almacen = NULL,
+                 destino = NULL,
+                 tipo = NULL,
+                 codigo_grupo = NULL,
+                 actualizado_en = CURRENT_TIMESTAMP
+             WHERE codigo_centro = :codigo_centro'
+        );
+        $update->execute([
+            ':codigo_centro' => CENTRO_DESCONOCIDO_CODIGO,
+            ':nombre_centro' => CENTRO_DESCONOCIDO_NOMBRE,
+        ]);
         return;
     }
 
     $insert = $pdo->prepare(
-        'INSERT INTO centros (codigo_centro, nombre_centro, ciudad, tipo, codigo_grupo)
-         VALUES (:codigo_centro, :nombre_centro, :ciudad, :tipo, :codigo_grupo)'
+        'INSERT INTO centros (
+            codigo_centro, nombre_centro, ciudad, codigo_congregacion, congregacion, entrada, almacen, destino, tipo, codigo_grupo
+         ) VALUES (
+            :codigo_centro, :nombre_centro, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+         )'
     );
     $insert->execute([
         ':codigo_centro' => CENTRO_DESCONOCIDO_CODIGO,
         ':nombre_centro' => CENTRO_DESCONOCIDO_NOMBRE,
-        ':ciudad' => null,
-        ':tipo' => null,
-        ':codigo_grupo' => null,
     ]);
 }
 
@@ -152,7 +169,7 @@ function guardarCentro(PDO $pdo, array $datos, ?string $codigoOriginal = null): 
 function prepararParametrosCentroManual(array $datos): array
 {
     $almacen = limpiarCampoCsv($datos['almacen'] ?? '');
-    $destino = limpiarCampoCsv($datos['destino'] ?? '');
+    $destino = normalizarDestinoCentro($datos['destino'] ?? '');
 
     if ($destino === '') {
         $destino = calcularDestinoCentroDesdeAlmacen($almacen);
@@ -190,7 +207,7 @@ function obtenerUrlSyncCentrosGoogleSheets(array $config): string
         return $urlCentros;
     }
 
-    return trim((string) ($config['google_inventory_sync_url'] ?? ''));
+    return CENTROS_GOOGLE_SHEETS_WEBAPP_URL;
 }
 
 function sincronizarCentrosDesdeAppsScript(PDO $pdo, string $scriptUrl, string $token): array
@@ -198,20 +215,56 @@ function sincronizarCentrosDesdeAppsScript(PDO $pdo, string $scriptUrl, string $
     $respuesta = llamarAppsScriptCentros($scriptUrl, $token, 'get_centros_nuevo_origen');
     $filas = extraerFilasCentrosDesdeAppsScript($respuesta);
 
+    return reconstruirCentrosDesdeFilas($pdo, $filas);
+}
+
+function reconstruirCentrosDesdeFilas(PDO $pdo, array $filas): array
+{
     $resumen = [
         'total_leidos' => 0,
         'insertados' => 0,
         'actualizados' => 0,
+        'eliminados' => 0,
         'ignorados' => 0,
         'errores' => [],
     ];
 
-    $select = $pdo->prepare('SELECT codigo_centro FROM centros WHERE codigo_centro = :codigo_centro LIMIT 1');
+    $filasPorCodigo = [];
+
+    foreach ($filas as $indice => $fila) {
+        $resumen['total_leidos']++;
+        $datosFila = normalizarFilaCentroNuevoOrigen(is_array($fila) ? $fila : []);
+
+        if (implode('', $datosFila) === '') {
+            $resumen['ignorados']++;
+            continue;
+        }
+
+        if ($datosFila['codigo_centro'] === '') {
+            $resumen['ignorados']++;
+            $resumen['errores'][] = 'Fila ' . ($indice + 2) . ': centro sin codigo, se ignora.';
+            continue;
+        }
+
+        if ($datosFila['codigo_centro'] === CENTRO_DESCONOCIDO_CODIGO) {
+            $resumen['ignorados']++;
+            continue;
+        }
+
+        if (isset($filasPorCodigo[$datosFila['codigo_centro']])) {
+            $resumen['ignorados']++;
+            $resumen['errores'][] = 'Fila ' . ($indice + 2) . ': codigo de centro duplicado en origen (' . $datosFila['codigo_centro'] . '), se ignora duplicado.';
+            continue;
+        }
+
+        $filasPorCodigo[$datosFila['codigo_centro']] = $datosFila;
+    }
+
     $upsert = $pdo->prepare(
         'INSERT INTO centros (
-            codigo_centro, nombre_centro, ciudad, codigo_congregacion, congregacion, entrada, almacen, destino
+            codigo_centro, nombre_centro, ciudad, codigo_congregacion, congregacion, entrada, almacen, destino, tipo, codigo_grupo
          ) VALUES (
-            :codigo_centro, :nombre_centro, :ciudad, :codigo_congregacion, :congregacion, :entrada, :almacen, :destino
+            :codigo_centro, :nombre_centro, :ciudad, :codigo_congregacion, :congregacion, :entrada, :almacen, :destino, NULL, NULL
          )
          ON DUPLICATE KEY UPDATE
             nombre_centro = VALUES(nombre_centro),
@@ -221,53 +274,37 @@ function sincronizarCentrosDesdeAppsScript(PDO $pdo, string $scriptUrl, string $
             entrada = VALUES(entrada),
             almacen = VALUES(almacen),
             destino = VALUES(destino),
+            tipo = NULL,
+            codigo_grupo = NULL,
             actualizado_en = CURRENT_TIMESTAMP'
     );
 
-    $codigosProcesados = [];
-
     try {
         $pdo->beginTransaction();
+        asegurarCentroDesconocido($pdo);
 
-        foreach ($filas as $indice => $fila) {
-            $resumen['total_leidos']++;
-            $datosFila = normalizarFilaCentroNuevoOrigen(is_array($fila) ? $fila : []);
+        $existentes = [];
+        $stmtExistentes = $pdo->query('SELECT codigo_centro FROM centros');
+        foreach ($stmtExistentes->fetchAll(PDO::FETCH_COLUMN) as $codigoExistente) {
+            $existentes[(string) $codigoExistente] = true;
+        }
 
-            if (implode('', $datosFila) === '') {
-                $resumen['ignorados']++;
-                continue;
-            }
-
-            if ($datosFila['codigo_centro'] === '') {
-                $resumen['ignorados']++;
-                $resumen['errores'][] = 'Fila ' . ($indice + 2) . ': centro sin codigo, se ignora.';
-                continue;
-            }
-
-            if (isset($codigosProcesados[$datosFila['codigo_centro']])) {
-                $resumen['ignorados']++;
-                $resumen['errores'][] = 'Fila ' . ($indice + 2) . ': codigo de centro duplicado en origen (' . $datosFila['codigo_centro'] . '), se ignora duplicado.';
-                continue;
-            }
-
-            $codigosProcesados[$datosFila['codigo_centro']] = true;
-
+        foreach ($filasPorCodigo as $codigoCentro => $datosFila) {
             try {
-                $select->execute([':codigo_centro' => $datosFila['codigo_centro']]);
-                $existe = $select->fetch() !== false;
-
                 $upsert->execute(prepararParametrosCentroNuevoOrigen($datosFila));
 
-                if ($existe) {
+                if (isset($existentes[$codigoCentro])) {
                     $resumen['actualizados']++;
                 } else {
                     $resumen['insertados']++;
                 }
             } catch (Throwable $e) {
                 $mensaje = trim($e->getMessage());
-                $resumen['errores'][] = 'Fila ' . ($indice + 2) . ': ' . ($mensaje !== '' ? $mensaje : 'Error al guardar el registro.');
+                $resumen['errores'][] = 'Centro ' . $codigoCentro . ': ' . ($mensaje !== '' ? $mensaje : 'Error al guardar el registro.');
             }
         }
+
+        $resumen['eliminados'] = eliminarCentrosNoPresentesEnOrigen($pdo, array_keys($filasPorCodigo));
 
         $pdo->commit();
     } catch (Throwable $e) {
@@ -281,6 +318,36 @@ function sincronizarCentrosDesdeAppsScript(PDO $pdo, string $scriptUrl, string $
     return $resumen;
 }
 
+function eliminarCentrosNoPresentesEnOrigen(PDO $pdo, array $codigosOrigen): int
+{
+    $codigosOrigen = array_values(array_unique(array_filter(
+        array_map('normalizarCodigoCentro', $codigosOrigen),
+        static fn(string $codigo): bool => $codigo !== '' && $codigo !== CENTRO_DESCONOCIDO_CODIGO
+    )));
+
+    $params = [
+        ':codigo_desconocido' => CENTRO_DESCONOCIDO_CODIGO,
+    ];
+
+    $sql = 'DELETE FROM centros WHERE codigo_centro <> :codigo_desconocido';
+
+    if ($codigosOrigen !== []) {
+        $placeholders = [];
+        foreach ($codigosOrigen as $indice => $codigoCentro) {
+            $placeholder = ':codigo_origen_' . $indice;
+            $placeholders[] = $placeholder;
+            $params[$placeholder] = $codigoCentro;
+        }
+
+        $sql .= ' AND codigo_centro NOT IN (' . implode(', ', $placeholders) . ')';
+    }
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
+    return $stmt->rowCount();
+}
+
 function llamarAppsScriptCentros(string $url, string $token, string $accion, int $timeoutSegundos = 30): array
 {
     if (trim($url) === '' || trim($token) === '') {
@@ -290,7 +357,6 @@ function llamarAppsScriptCentros(string $url, string $token, string $accion, int
     $body = json_encode([
         'token' => $token,
         'action' => $accion,
-        'payload' => [],
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
     if ($body === false) {
@@ -359,7 +425,7 @@ function extraerFilasCentrosDesdeAppsScript(array $respuesta): array
 function normalizarFilaCentroNuevoOrigen(array $fila): array
 {
     $almacen = limpiarCampoCsv($fila['almacen'] ?? '');
-    $destino = limpiarCampoCsv($fila['destino'] ?? '');
+    $destino = normalizarDestinoCentro($fila['destino'] ?? '');
 
     if ($destino === '') {
         $destino = calcularDestinoCentroDesdeAlmacen($almacen);
@@ -573,6 +639,13 @@ function calcularDestinoCentroDesdeAlmacen(mixed $almacen): string
         '1905' => 'EPL',
         default => '',
     };
+}
+
+function normalizarDestinoCentro(mixed $destino): string
+{
+    $texto = strtoupper(limpiarCampoCsv($destino));
+
+    return in_array($texto, ['EDV', 'EPL'], true) ? $texto : '';
 }
 
 function normalizarCodigoAlmacenCentro(mixed $almacen): string

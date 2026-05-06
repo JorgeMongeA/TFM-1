@@ -74,14 +74,6 @@ renderAppLayoutStart(
                 <label class="form-label" for="ciudad">Localidad</label>
                 <input class="form-control" id="ciudad" name="ciudad" type="text" value="<?= htmlspecialchars($filtros['ciudad'], ENT_QUOTES, 'UTF-8') ?>">
             </div>
-            <div class="col-12 col-md-6 col-xl-2">
-                <label class="form-label" for="tipo">Tipo</label>
-                <input class="form-control" id="tipo" name="tipo" type="text" value="<?= htmlspecialchars($filtros['tipo'], ENT_QUOTES, 'UTF-8') ?>">
-            </div>
-            <div class="col-12 col-md-6 col-xl-3">
-                <label class="form-label" for="codigo_grupo">Código grupo</label>
-                <input class="form-control" id="codigo_grupo" name="codigo_grupo" type="text" value="<?= htmlspecialchars($filtros['codigo_grupo'], ENT_QUOTES, 'UTF-8') ?>">
-            </div>
             <div class="col-12 col-md-6 col-xl-3">
                 <label class="form-label" for="congregacion">Congregación</label>
                 <input class="form-control" id="congregacion" name="congregacion" type="text" value="<?= htmlspecialchars($filtros['congregacion'], ENT_QUOTES, 'UTF-8') ?>">

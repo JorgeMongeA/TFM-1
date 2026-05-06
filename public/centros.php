@@ -30,7 +30,7 @@ try {
         $scriptUrl = obtenerUrlSyncCentrosGoogleSheets($config);
 
         if ($scriptUrl === '') {
-            throw new RuntimeException('Falta la clave google_inventory_sync_url o centros_google_sync_url en config/config.php.');
+            throw new RuntimeException('Falta la URL de sincronizacion de centros.');
         }
 
         $resultadoSincronizacion = sincronizarCentrosDesdeAppsScript($pdo, $scriptUrl, obtenerTokenSyncCentrosGoogleSheets());
@@ -65,14 +65,6 @@ renderAppLayoutStart(
                     <div class="col-12 col-md-6 col-xl-2">
                         <label class="form-label" for="ciudad">Localidad</label>
                         <input class="form-control" id="ciudad" name="ciudad" type="text" value="<?= htmlspecialchars($filtros['ciudad'], ENT_QUOTES, 'UTF-8') ?>">
-                    </div>
-                    <div class="col-12 col-md-6 col-xl-2">
-                        <label class="form-label" for="tipo">Tipo</label>
-                        <input class="form-control" id="tipo" name="tipo" type="text" value="<?= htmlspecialchars($filtros['tipo'], ENT_QUOTES, 'UTF-8') ?>">
-                    </div>
-                    <div class="col-12 col-md-6 col-xl-3">
-                        <label class="form-label" for="codigo_grupo">Código grupo</label>
-                        <input class="form-control" id="codigo_grupo" name="codigo_grupo" type="text" value="<?= htmlspecialchars($filtros['codigo_grupo'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="col-12 col-md-6 col-xl-3">
                         <label class="form-label" for="congregacion">Congregación</label>
@@ -111,6 +103,7 @@ renderAppLayoutStart(
                     <div class="col-6 col-xl-3"><strong>Total leídos:</strong> <?= htmlspecialchars((string) $resultadoSincronizacion['total_leidos'], ENT_QUOTES, 'UTF-8') ?></div>
                     <div class="col-6 col-xl-3"><strong>Insertados:</strong> <?= htmlspecialchars((string) $resultadoSincronizacion['insertados'], ENT_QUOTES, 'UTF-8') ?></div>
                     <div class="col-6 col-xl-3"><strong>Actualizados:</strong> <?= htmlspecialchars((string) $resultadoSincronizacion['actualizados'], ENT_QUOTES, 'UTF-8') ?></div>
+                    <div class="col-6 col-xl-3"><strong>Eliminados:</strong> <?= htmlspecialchars((string) ($resultadoSincronizacion['eliminados'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
                     <div class="col-6 col-xl-3"><strong>Ignorados:</strong> <?= htmlspecialchars((string) $resultadoSincronizacion['ignorados'], ENT_QUOTES, 'UTF-8') ?></div>
                 </div>
                 <?php if (($resultadoSincronizacion['errores'] ?? []) !== []): ?>

@@ -1,5 +1,6 @@
 const INVENTARIO_SHEET_NAME = 'inventario';
 const HISTORICO_SHEET_NAME = 'historico';
+const CENTROS_SPREADSHEET_NAME = 'DEVOLUCIONES_STOCK';
 const CENTROS_NUEVO_ORIGEN_SHEET_NAME = 'centros';
 const SECRET_TOKEN = 'congregaciones_sync_2026';
 
@@ -235,7 +236,7 @@ function readCentrosNuevoOrigenRows_() {
 }
 
 function getCentrosNuevoOrigenSheet_() {
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getCentrosSpreadsheet_();
   const exactSheet = spreadsheet.getSheetByName(CENTROS_NUEVO_ORIGEN_SHEET_NAME);
   if (exactSheet) {
     return exactSheet;
@@ -251,6 +252,23 @@ function getCentrosNuevoOrigenSheet_() {
   }
 
   return matchedSheet;
+}
+
+function getCentrosSpreadsheet_() {
+  const activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  if (activeSpreadsheet && normalizeCell_(activeSpreadsheet.getName()) === CENTROS_SPREADSHEET_NAME) {
+    return activeSpreadsheet;
+  }
+
+  const files = DriveApp.getFilesByName(CENTROS_SPREADSHEET_NAME);
+  while (files.hasNext()) {
+    const file = files.next();
+    if (file.getMimeType() === MimeType.GOOGLE_SHEETS) {
+      return SpreadsheetApp.openById(file.getId());
+    }
+  }
+
+  throw new Error('No existe el Google Sheet "' + CENTROS_SPREADSHEET_NAME + '".');
 }
 
 function normalizeCentroNuevoOrigenRow_(row, index) {

@@ -18,7 +18,7 @@ return [
     // Integraciones opcionales.
     'inventario_csv_url' => '',
     'centros_csv_url' => '',
-    'centros_google_sync_url' => '',
+    'centros_google_sync_url' => 'https://script.google.com/macros/s/AKfycbzGdKiAIX3CcsJnSRRcqLwmCqK5T7-7AYXnegfnByEwMfLFFs0Ane0U4044L81LzHO9iw/exec',
     'google_inventory_sync_url' => 'https://script.google.com/macros/s/AKfycbxJXA80jesoay9I0-covN_3co18Gndn2Ck7Q0vbtNt8gWZg42IHW5u2Uu7n6k6b8INR/exec',
 
     // Avisos por email de pedidos.
