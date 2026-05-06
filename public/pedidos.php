@@ -118,22 +118,22 @@ renderAppLayoutStart(
     <?php if (puedeCrearPedidos()): ?>
         <div class="card border-0 shadow-sm mb-4">
             <div class="card-body">
-                <form method="GET" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/pedidos.php" class="row g-3 align-items-end">
+                <form method="GET" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/pedidos.php" class="row g-3 align-items-end" autocomplete="off">
                     <div class="col-12 col-md-6 col-xl-3">
                         <label class="form-label" for="editorial">Editorial</label>
-                        <input class="form-control" id="editorial" name="editorial" type="text" value="<?= htmlspecialchars($filtrosInventario['editorial'], ENT_QUOTES, 'UTF-8') ?>">
+                        <input class="form-control" id="editorial" name="editorial" type="text" autocomplete="off" value="<?= htmlspecialchars($filtrosInventario['editorial'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="col-12 col-md-6 col-xl-3">
                         <label class="form-label" for="colegio">Colegio</label>
-                        <input class="form-control" id="colegio" name="colegio" type="text" value="<?= htmlspecialchars($filtrosInventario['colegio'], ENT_QUOTES, 'UTF-8') ?>">
+                        <input class="form-control" id="colegio" name="colegio" type="text" autocomplete="off" value="<?= htmlspecialchars($filtrosInventario['colegio'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="col-12 col-md-6 col-xl-3">
                         <label class="form-label" for="codigo_centro">Codigo centro</label>
-                        <input class="form-control" id="codigo_centro" name="codigo_centro" type="text" value="<?= htmlspecialchars($filtrosInventario['codigo_centro'], ENT_QUOTES, 'UTF-8') ?>">
+                        <input class="form-control" id="codigo_centro" name="codigo_centro" type="text" autocomplete="off" value="<?= htmlspecialchars($filtrosInventario['codigo_centro'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="col-12 col-md-6 col-xl-3">
                         <label class="form-label" for="destino">Destino</label>
-                        <input class="form-control" id="destino" name="destino" type="text" value="<?= htmlspecialchars($filtrosInventario['destino'], ENT_QUOTES, 'UTF-8') ?>">
+                        <input class="form-control" id="destino" name="destino" type="text" autocomplete="off" value="<?= htmlspecialchars($filtrosInventario['destino'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <input type="hidden" name="codigo_pedido" value="<?= htmlspecialchars($filtrosPedidos['codigo_pedido'], ENT_QUOTES, 'UTF-8') ?>">
                     <input type="hidden" name="estado" value="<?= htmlspecialchars($filtrosPedidos['estado'], ENT_QUOTES, 'UTF-8') ?>">
@@ -223,7 +223,7 @@ renderAppLayoutStart(
                             : 'Seguimiento de las solicitudes que has enviado a almacen.' ?>
                     </p>
                 </div>
-                <form method="GET" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/pedidos.php" class="row g-2 align-items-end">
+                <form method="GET" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/pedidos.php" class="row g-2 align-items-end" autocomplete="off">
                     <?php if (puedeCrearPedidos()): ?>
                         <?php foreach ($filtrosInventario as $clave => $valor): ?>
                             <input type="hidden" name="<?= htmlspecialchars($clave, ENT_QUOTES, 'UTF-8') ?>" value="<?= htmlspecialchars($valor, ENT_QUOTES, 'UTF-8') ?>">
@@ -233,7 +233,7 @@ renderAppLayoutStart(
                     <?php endif; ?>
                     <div class="col-12 col-md-auto">
                         <label class="form-label" for="codigo_pedido">Codigo</label>
-                        <input class="form-control" id="codigo_pedido" name="codigo_pedido" type="text" value="<?= htmlspecialchars($filtrosPedidos['codigo_pedido'], ENT_QUOTES, 'UTF-8') ?>">
+                        <input class="form-control" id="codigo_pedido" name="codigo_pedido" type="text" autocomplete="off" value="<?= htmlspecialchars($filtrosPedidos['codigo_pedido'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="col-12 col-md-auto">
                         <label class="form-label" for="estado">Estado</label>
@@ -249,7 +249,7 @@ renderAppLayoutStart(
                     <?php if (puedeGestionarPedidos()): ?>
                         <div class="col-12 col-md-auto">
                             <label class="form-label" for="usuario_creacion">Solicitante</label>
-                            <input class="form-control" id="usuario_creacion" name="usuario_creacion" type="text" value="<?= htmlspecialchars($filtrosPedidos['usuario_creacion'], ENT_QUOTES, 'UTF-8') ?>">
+                            <input class="form-control" id="usuario_creacion" name="usuario_creacion" type="text" autocomplete="off" value="<?= htmlspecialchars($filtrosPedidos['usuario_creacion'], ENT_QUOTES, 'UTF-8') ?>">
                         </div>
                     <?php endif; ?>
                     <div class="col-12 col-md-auto d-flex gap-2">
@@ -301,6 +301,36 @@ renderAppLayoutStart(
         </div>
     </div>
 </section>
+
+<script src="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/js/autocomplete.js"></script>
+<script>
+const inventarioAutocompleteEndpoint = <?= json_encode(BASE_URL . '/inventario_autocomplete.php', JSON_UNESCAPED_SLASHES) ?>;
+const pedidosAutocompleteEndpoint = <?= json_encode(BASE_URL . '/pedidos_autocomplete.php', JSON_UNESCAPED_SLASHES) ?>;
+
+['editorial', 'colegio', 'codigo_centro', 'destino'].forEach((campo) => {
+    window.AppAutocomplete?.init({
+        inputSelector: `#${campo}`,
+        endpoint: inventarioAutocompleteEndpoint,
+        minChars: 1,
+        limit: 10,
+        params: { campo },
+        emptyText: 'No hay valores en stock activo.',
+        getInputValue: (item) => item.value || item.label || '',
+    });
+});
+
+['codigo_pedido', 'usuario_creacion'].forEach((campo) => {
+    window.AppAutocomplete?.init({
+        inputSelector: `#${campo}`,
+        endpoint: pedidosAutocompleteEndpoint,
+        minChars: 1,
+        limit: 10,
+        params: { campo },
+        emptyText: 'No hay pedidos que coincidan.',
+        getInputValue: (item) => item.value || item.label || '',
+    });
+});
+</script>
 
 <?php if (puedeCrearPedidos()): ?>
 <script>

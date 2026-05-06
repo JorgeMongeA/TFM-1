@@ -20,14 +20,7 @@ requierePermiso(PERMISO_INVENTARIO_SALIDA);
 
 function construirEtiquetaCentroSalida(array $centro): string
 {
-    $nombre = trim((string) ($centro['nombre_centro'] ?? ''));
-    $codigo = trim((string) ($centro['codigo_centro'] ?? ''));
-
-    if ($nombre === '') {
-        return $codigo;
-    }
-
-    return $nombre . ' (' . $codigo . ')';
+    return construirEtiquetaCentroBusqueda($centro);
 }
 
 $centros = [];
@@ -81,15 +74,6 @@ try {
 }
 
 $columnasTabla = columnasInventarioTabla();
-$centrosJson = [];
-
-foreach ($centros as $centro) {
-    $centrosJson[] = [
-        'label' => construirEtiquetaCentroSalida($centro),
-        'codigo' => (string) ($centro['codigo_centro'] ?? ''),
-        'nombre' => (string) ($centro['nombre_centro'] ?? ''),
-    ];
-}
 
 renderAppLayoutStart(
     'Inventario - Salida',
@@ -109,15 +93,12 @@ renderAppLayoutStart(
 
     <div class="card border-0 shadow-sm mb-4">
         <div class="card-body">
-            <form method="GET" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/salida.php" class="row g-3 align-items-end" autocomplete="off">
+            <form method="GET" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/salida.php" class="row g-3 align-items-end" autocomplete="off" id="salida-centro-form">
                 <div class="col-12 col-lg-8">
                     <label class="form-label" for="centro_selector">Colegio / centro</label>
-                    <input class="form-control" id="centro_selector" name="centro_selector" type="text" list="centros_salida" value="<?= htmlspecialchars($centroSelector, ENT_QUOTES, 'UTF-8') ?>" placeholder="Escribe para buscar un centro">
-                    <datalist id="centros_salida">
-                        <?php foreach ($centros as $centro): ?>
-                            <option value="<?= htmlspecialchars(construirEtiquetaCentroSalida($centro), ENT_QUOTES, 'UTF-8') ?>"></option>
-                        <?php endforeach; ?>
-                    </datalist>
+                    <div class="autocomplete-wrapper">
+                        <input class="form-control" id="centro_selector" name="centro_selector" type="text" autocomplete="off" value="<?= htmlspecialchars($centroSelector, ENT_QUOTES, 'UTF-8') ?>" placeholder="Escribe para buscar un centro">
+                    </div>
                     <input id="codigo_centro" name="codigo_centro" type="hidden" value="<?= htmlspecialchars($centroCodigo, ENT_QUOTES, 'UTF-8') ?>">
                 </div>
                 <div class="col-12 col-lg-4 d-flex flex-wrap gap-2">
@@ -248,23 +229,67 @@ renderAppLayoutStart(
     </div>
 </section>
 
+<script src="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/js/autocomplete.js"></script>
 <script>
-const centrosSalida = <?= json_encode($centrosJson, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const centroSalidaInicial = <?= json_encode([
+    'codigo_centro' => $centroCodigo,
+    'nombre_centro' => '',
+    'localidad' => '',
+    'destino' => '',
+    'label' => $centroSelector,
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const centroSalidaInput = document.getElementById('centro_selector');
 const codigoCentroInput = document.getElementById('codigo_centro');
 
-function sincronizarCentroSalida(valor) {
-    const centro = centrosSalida.find((item) => item.label === valor);
-    codigoCentroInput.value = centro ? centro.codigo : '';
+function renderCentroSalida(centro) {
+    const contenido = document.createElement('span');
+    const titulo = document.createElement('span');
+    const meta = document.createElement('span');
+
+    titulo.className = 'autocomplete-title';
+    titulo.textContent = centro.codigo_centro === '000000' ? (centro.label || '') : (centro.nombre_centro || centro.label || '');
+    meta.className = 'autocomplete-meta';
+    meta.textContent = [centro.codigo_centro, centro.localidad, centro.destino].filter(Boolean).join(' - ');
+
+    contenido.appendChild(titulo);
+    if (meta.textContent !== '') {
+        contenido.appendChild(meta);
+    }
+
+    return contenido;
 }
 
-if (centroSalidaInput) {
-    sincronizarCentroSalida(centroSalidaInput.value);
-    centroSalidaInput.addEventListener('input', (event) => {
-        sincronizarCentroSalida(event.target.value);
-    });
-    centroSalidaInput.addEventListener('change', (event) => {
-        sincronizarCentroSalida(event.target.value);
+window.AppAutocomplete?.init({
+    inputSelector: '#centro_selector',
+    endpoint: <?= json_encode(BASE_URL . '/centros_buscar.php', JSON_UNESCAPED_SLASHES) ?>,
+    minChars: 2,
+    limit: 20,
+    formSelector: '#salida-centro-form',
+    requireSelection: true,
+    initialSelected: centroSalidaInicial.codigo_centro ? centroSalidaInicial : null,
+    invalidMessage: 'Selecciona un centro valido de la lista.',
+    emptyText: 'No hay centros que coincidan.',
+    getInputValue: (centro) => centro.label || '',
+    isValidSelection: () => centroSalidaInput.value.trim() === '' || codigoCentroInput.value.trim() !== '',
+    onInput: () => {
+        codigoCentroInput.value = '';
+    },
+    onSelect: (centro) => {
+        codigoCentroInput.value = centro.codigo_centro || '';
+    },
+    renderItem: renderCentroSalida,
+});
+
+if (centroSalidaInput && codigoCentroInput) {
+    document.getElementById('salida-centro-form')?.addEventListener('submit', (event) => {
+        if (centroSalidaInput.value.trim() !== '' && codigoCentroInput.value.trim() === '') {
+            event.preventDefault();
+            centroSalidaInput.setCustomValidity('Selecciona un centro valido de la lista.');
+            centroSalidaInput.reportValidity();
+            return;
+        }
+
+        centroSalidaInput.setCustomValidity('');
     });
 }
 </script>

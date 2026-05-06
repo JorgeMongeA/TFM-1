@@ -92,6 +92,16 @@ function filtrosInventarioPermitidos(): array
     return ['editorial', 'colegio', 'codigo_centro', 'destino'];
 }
 
+function camposInventarioAutocompletePermitidos(): array
+{
+    return [
+        'editorial' => 'Editorial',
+        'colegio' => 'Colegio',
+        'codigo_centro' => 'Codigo centro',
+        'destino' => 'Destino',
+    ];
+}
+
 function filtrosHistoricoPermitidos(): array
 {
     return ['numero_albaran', 'editorial', 'colegio', 'codigo_centro', 'destino', 'usuario_confirmacion'];
@@ -132,6 +142,50 @@ function leerOrdenInventarioDesdeRequest(
 function consultarInventario(PDO $pdo, array $filtros, string $ordenar, string $direccion): array
 {
     return consultarInventarioPorEstado($pdo, INVENTARIO_ESTADO_ACTIVO, $filtros, $ordenar, $direccion);
+}
+
+function buscarValoresInventarioActivoAutocomplete(PDO $pdo, string $campo, string $texto, int $limite = 10): array
+{
+    $camposPermitidos = camposInventarioAutocompletePermitidos();
+    if (!array_key_exists($campo, $camposPermitidos)) {
+        throw new InvalidArgumentException('Campo de autocomplete no permitido.');
+    }
+
+    $texto = trim($texto);
+    $limite = max(1, min(20, $limite));
+    $sql = 'SELECT ' . $campo . ' AS value, COUNT(*) AS total
+            FROM inventario
+            WHERE estado = :estado
+              AND ' . $campo . ' IS NOT NULL
+              AND TRIM(' . $campo . ') <> \'\'';
+    $params = [
+        ':estado' => INVENTARIO_ESTADO_ACTIVO,
+    ];
+
+    if ($texto !== '') {
+        $sql .= ' AND ' . $campo . ' LIKE :texto';
+        $params[':texto'] = '%' . $texto . '%';
+    }
+
+    $sql .= ' GROUP BY ' . $campo;
+
+    if ($texto !== '') {
+        $sql .= ' ORDER BY CASE WHEN ' . $campo . ' LIKE :prefijo THEN 0 ELSE 1 END ASC, ' . $campo . ' ASC';
+        $params[':prefijo'] = $texto . '%';
+    } else {
+        $sql .= ' ORDER BY ' . $campo . ' ASC';
+    }
+
+    $sql .= ' LIMIT :limite';
+
+    $stmt = $pdo->prepare($sql);
+    foreach ($params as $param => $valor) {
+        $stmt->bindValue($param, $valor);
+    }
+    $stmt->bindValue(':limite', $limite, PDO::PARAM_INT);
+    $stmt->execute();
+
+    return $stmt->fetchAll();
 }
 
 function consultarHistorico(PDO $pdo, array $filtros, string $ordenar, string $direccion): array

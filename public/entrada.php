@@ -233,9 +233,8 @@ renderAppLayoutStart(
         </div>
         <div class="col-12 col-xl-6">
             <label class="form-label" for="centro_selector">Centro *</label>
-            <div class="centro-autocomplete">
-                <input class="form-control" id="centro_selector" name="centro_selector" type="text" required autocomplete="off" value="<?= htmlspecialchars($datos['centro_selector'], ENT_QUOTES, 'UTF-8') ?>" placeholder="Escribe para buscar un centro" aria-autocomplete="list" aria-expanded="false" aria-controls="centro_selector_results">
-                <div class="centro-autocomplete-results d-none" id="centro_selector_results" role="listbox"></div>
+            <div class="autocomplete-wrapper">
+                <input class="form-control" id="centro_selector" name="centro_selector" type="text" required autocomplete="off" value="<?= htmlspecialchars($datos['centro_selector'], ENT_QUOTES, 'UTF-8') ?>" placeholder="Escribe para buscar un centro">
             </div>
             <div class="form-text">Busca por nombre, codigo o localidad.</div>
         </div>
@@ -281,8 +280,8 @@ renderAppLayoutStart(
     </form>
 </section>
 
+<script src="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/js/autocomplete.js"></script>
 <script>
-const centrosBuscarUrl = <?= json_encode(BASE_URL . '/centros_buscar.php', JSON_UNESCAPED_SLASHES) ?>;
 const centroInicial = <?= json_encode([
     'codigo_centro' => $datos['codigo_centro'],
     'nombre_centro' => $datos['colegio'],
@@ -295,11 +294,6 @@ const centroSelectorInput = document.getElementById('centro_selector');
 const centroNombreInput = document.getElementById('colegio');
 const centroCodigoInput = document.getElementById('codigo_centro');
 const centroDestinoInput = document.getElementById('destino');
-const centroResultados = document.getElementById('centro_selector_results');
-let centroSeleccionado = centroInicial.codigo_centro ? centroInicial : null;
-let busquedaTimer = null;
-let busquedaAbortController = null;
-let opcionActiva = -1;
 
 function normalizarDestinoEntrada(destino) {
     return ['EDV', 'EPL'].includes(destino) ? destino : '';
@@ -315,169 +309,66 @@ function aplicarDestinoCentro(destino) {
     centroDestinoInput.dataset.destinoCentro = destinoNormalizado;
 }
 
-function cerrarResultadosCentro() {
-    if (!centroResultados) {
-        return;
+function limpiarCentroSeleccionado() {
+    if (centroNombreInput) {
+        centroNombreInput.value = '';
     }
 
-    centroResultados.classList.add('d-none');
-    centroResultados.innerHTML = '';
-    centroSelectorInput.setAttribute('aria-expanded', 'false');
-    opcionActiva = -1;
-}
+    if (centroCodigoInput) {
+        centroCodigoInput.value = '';
+    }
 
-function actualizarOpcionActiva() {
-    const opciones = Array.from(centroResultados.querySelectorAll('.centro-autocomplete-option'));
-    opciones.forEach((opcion, indice) => {
-        const activo = indice === opcionActiva;
-        opcion.classList.toggle('is-active', activo);
-        opcion.setAttribute('aria-selected', activo ? 'true' : 'false');
-    });
-}
-
-function seleccionarCentro(centro) {
-    centroSeleccionado = centro;
-    centroSelectorInput.value = centro.label || '';
-    centroNombreInput.value = centro.nombre_centro || '';
-    centroCodigoInput.value = centro.codigo_centro || '';
-    aplicarDestinoCentro(centro.destino || '');
-    centroSelectorInput.setCustomValidity('');
-    cerrarResultadosCentro();
-}
-
-function limpiarCentroSeleccionado() {
-    centroSeleccionado = null;
-    centroNombreInput.value = '';
-    centroCodigoInput.value = '';
     aplicarDestinoCentro('');
 }
 
-function pintarResultadosCentro(centros) {
-    centroResultados.innerHTML = '';
-    opcionActiva = -1;
-
-    if (!Array.isArray(centros) || centros.length === 0) {
-        const vacio = document.createElement('div');
-        vacio.className = 'centro-autocomplete-empty';
-        vacio.textContent = 'No hay centros que coincidan.';
-        centroResultados.appendChild(vacio);
-        centroResultados.classList.remove('d-none');
-        centroSelectorInput.setAttribute('aria-expanded', 'true');
-        return;
-    }
-
-    centros.forEach((centro) => {
-        const opcion = document.createElement('button');
-        opcion.type = 'button';
-        opcion.className = 'centro-autocomplete-option';
-        opcion.setAttribute('role', 'option');
-        opcion.setAttribute('aria-selected', 'false');
-
-        const nombre = document.createElement('span');
-        nombre.className = 'centro-autocomplete-option-name';
-        nombre.textContent = centro.codigo_centro === '000000' ? (centro.label || '') : (centro.nombre_centro || centro.label || '');
-
-        const meta = document.createElement('span');
-        meta.className = 'centro-autocomplete-option-meta';
-        meta.textContent = [centro.codigo_centro, centro.localidad, centro.destino].filter(Boolean).join(' - ');
-
-        opcion.appendChild(nombre);
-        opcion.appendChild(meta);
-        opcion.addEventListener('click', () => seleccionarCentro(centro));
-        centroResultados.appendChild(opcion);
-    });
-
-    centroResultados.classList.remove('d-none');
-    centroSelectorInput.setAttribute('aria-expanded', 'true');
-}
-
-function buscarCentrosEntrada(query) {
-    if (busquedaAbortController) {
-        busquedaAbortController.abort();
-    }
-
-    busquedaAbortController = new AbortController();
-    const params = new URLSearchParams({ q: query });
-
-    fetch(`${centrosBuscarUrl}?${params.toString()}`, {
-        headers: { Accept: 'application/json' },
-        signal: busquedaAbortController.signal,
-    })
-        .then((response) => {
-            if (!response.ok) {
-                throw new Error('Respuesta no valida');
-            }
-
-            return response.json();
-        })
-        .then((payload) => {
-            pintarResultadosCentro(payload.success ? payload.results : []);
-        })
-        .catch((error) => {
-            if (error.name !== 'AbortError') {
-                pintarResultadosCentro([]);
-            }
-        });
-}
-
-function programarBusquedaCentros() {
-    const query = centroSelectorInput.value.trim();
-
-    window.clearTimeout(busquedaTimer);
-    if (query.length > 0 && query.length < 2) {
-        cerrarResultadosCentro();
-        return;
-    }
-
-    busquedaTimer = window.setTimeout(() => buscarCentrosEntrada(query), 180);
-}
-
-if (centroSelectorInput && centroNombreInput && centroCodigoInput && centroResultados) {
-    if (centroSeleccionado) {
-        aplicarDestinoCentro(centroSeleccionado.destino || '');
-    }
-
-    centroSelectorInput.addEventListener('input', () => {
-        centroSelectorInput.setCustomValidity('');
+function aplicarCentroSeleccionado(centro) {
+    if (!centro) {
         limpiarCentroSeleccionado();
-        programarBusquedaCentros();
-    });
+        return;
+    }
 
-    centroSelectorInput.addEventListener('focus', () => {
-        programarBusquedaCentros();
-    });
+    centroNombreInput.value = centro.nombre_centro || '';
+    centroCodigoInput.value = centro.codigo_centro || '';
+    aplicarDestinoCentro(centro.destino || '');
+}
 
-    centroSelectorInput.addEventListener('keydown', (event) => {
-        const opciones = Array.from(centroResultados.querySelectorAll('.centro-autocomplete-option'));
-        if (centroResultados.classList.contains('d-none') || opciones.length === 0) {
-            return;
-        }
+function renderCentroAutocomplete(centro) {
+    const contenido = document.createElement('span');
+    const titulo = document.createElement('span');
+    const meta = document.createElement('span');
 
-        if (event.key === 'ArrowDown') {
-            event.preventDefault();
-            opcionActiva = Math.min(opciones.length - 1, opcionActiva + 1);
-            actualizarOpcionActiva();
-        } else if (event.key === 'ArrowUp') {
-            event.preventDefault();
-            opcionActiva = Math.max(0, opcionActiva - 1);
-            actualizarOpcionActiva();
-        } else if (event.key === 'Enter' && opcionActiva >= 0) {
-            event.preventDefault();
-            opciones[opcionActiva].click();
-        } else if (event.key === 'Escape') {
-            cerrarResultadosCentro();
-        }
-    });
+    titulo.className = 'autocomplete-title';
+    titulo.textContent = centro.codigo_centro === '000000' ? (centro.label || '') : (centro.nombre_centro || centro.label || '');
+    meta.className = 'autocomplete-meta';
+    meta.textContent = [centro.codigo_centro, centro.localidad, centro.destino].filter(Boolean).join(' - ');
 
-    centroResultados.addEventListener('mousedown', (event) => {
-        event.preventDefault();
-    });
+    contenido.appendChild(titulo);
+    if (meta.textContent !== '') {
+        contenido.appendChild(meta);
+    }
 
-    document.addEventListener('click', (event) => {
-        if (!centroSelectorInput.contains(event.target) && !centroResultados.contains(event.target)) {
-            cerrarResultadosCentro();
-        }
-    });
+    return contenido;
+}
+
+const centroAutocomplete = window.AppAutocomplete?.init({
+    inputSelector: '#centro_selector',
+    endpoint: <?= json_encode(BASE_URL . '/centros_buscar.php', JSON_UNESCAPED_SLASHES) ?>,
+    minChars: 2,
+    limit: 20,
+    formSelector: '#entrada-form',
+    requireSelection: true,
+    initialSelected: centroInicial.codigo_centro ? centroInicial : null,
+    invalidMessage: 'Selecciona un centro valido de la lista.',
+    emptyText: 'No hay centros que coincidan.',
+    getInputValue: (centro) => centro.label || '',
+    isValidSelection: () => centroCodigoInput.value.trim() !== '',
+    onInput: limpiarCentroSeleccionado,
+    onSelect: aplicarCentroSeleccionado,
+    renderItem: renderCentroAutocomplete,
+});
+
+if (centroInicial.codigo_centro) {
+    aplicarDestinoCentro(centroInicial.destino || '');
 }
 
 if (centroDestinoInput) {
@@ -492,13 +383,14 @@ if (entradaForm && centroSelectorInput && centroCodigoInput) {
     entradaForm.addEventListener('submit', (event) => {
         if (centroCodigoInput.value.trim() === '') {
             event.preventDefault();
-            centroSelectorInput.setCustomValidity('Selecciona un centro de la lista.');
+            centroSelectorInput.setCustomValidity('Selecciona un centro valido de la lista.');
             centroSelectorInput.reportValidity();
             return;
         }
 
-        if (centroSeleccionado && centroDestinoInput) {
-            aplicarDestinoCentro(centroSeleccionado.destino || '');
+        const centroSeleccionado = centroAutocomplete?.getSelected();
+        if (centroSeleccionado) {
+            aplicarCentroSeleccionado(centroSeleccionado);
         }
 
         centroSelectorInput.setCustomValidity('');

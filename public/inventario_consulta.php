@@ -137,22 +137,22 @@ renderAppLayoutStart(
     <div class="d-flex flex-column flex-lg-row gap-3 mb-4">
         <div class="card border-0 shadow-sm flex-grow-1">
             <div class="card-body">
-                <form method="GET" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/inventario_consulta.php" class="row g-3 align-items-end">
+                <form method="GET" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/inventario_consulta.php" class="row g-3 align-items-end" autocomplete="off">
                     <div class="col-12 col-md-6 col-xl-3">
                         <label class="form-label" for="editorial">Editorial</label>
-                        <input class="form-control" id="editorial" name="editorial" type="text" value="<?= htmlspecialchars($filtros['editorial'], ENT_QUOTES, 'UTF-8') ?>">
+                        <input class="form-control" id="editorial" name="editorial" type="text" autocomplete="off" value="<?= htmlspecialchars($filtros['editorial'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="col-12 col-md-6 col-xl-3">
                         <label class="form-label" for="colegio">Colegio</label>
-                        <input class="form-control" id="colegio" name="colegio" type="text" value="<?= htmlspecialchars($filtros['colegio'], ENT_QUOTES, 'UTF-8') ?>">
+                        <input class="form-control" id="colegio" name="colegio" type="text" autocomplete="off" value="<?= htmlspecialchars($filtros['colegio'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="col-12 col-md-6 col-xl-3">
                         <label class="form-label" for="codigo_centro">Codigo centro</label>
-                        <input class="form-control" id="codigo_centro" name="codigo_centro" type="text" value="<?= htmlspecialchars($filtros['codigo_centro'], ENT_QUOTES, 'UTF-8') ?>">
+                        <input class="form-control" id="codigo_centro" name="codigo_centro" type="text" autocomplete="off" value="<?= htmlspecialchars($filtros['codigo_centro'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="col-12 col-md-6 col-xl-3">
                         <label class="form-label" for="destino">Destino</label>
-                        <input class="form-control" id="destino" name="destino" type="text" value="<?= htmlspecialchars($filtros['destino'], ENT_QUOTES, 'UTF-8') ?>">
+                        <input class="form-control" id="destino" name="destino" type="text" autocomplete="off" value="<?= htmlspecialchars($filtros['destino'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="col-12 d-flex flex-wrap gap-2">
                         <button class="btn btn-primary mt-0" type="submit">Filtrar</button>
@@ -367,4 +367,20 @@ if (anularInventarioModal) {
 }
 </script>
 <?php endif; ?>
+<script src="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/js/autocomplete.js"></script>
+<script>
+const inventarioAutocompleteEndpoint = <?= json_encode(BASE_URL . '/inventario_autocomplete.php', JSON_UNESCAPED_SLASHES) ?>;
+
+['editorial', 'colegio', 'codigo_centro', 'destino'].forEach((campo) => {
+    window.AppAutocomplete?.init({
+        inputSelector: `#${campo}`,
+        endpoint: inventarioAutocompleteEndpoint,
+        minChars: 1,
+        limit: 10,
+        params: { campo },
+        emptyText: 'No hay valores en stock activo.',
+        getInputValue: (item) => item.value || item.label || '',
+    });
+});
+</script>
 <?php renderAppLayoutEnd(); ?>

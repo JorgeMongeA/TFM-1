@@ -41,8 +41,9 @@ try {
     }
 
     $q = trim((string) ($_GET['q'] ?? ''));
+    $limite = (int) ($_GET['limit'] ?? 20);
     $pdo = conectar();
-    $centros = buscarCentrosParaAutocomplete($pdo, $q, 20);
+    $centros = buscarCentrosParaAutocomplete($pdo, $q, $limite);
     $results = [];
 
     foreach ($centros as $centro) {

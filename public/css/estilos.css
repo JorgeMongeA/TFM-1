@@ -106,27 +106,28 @@ select:focus {
     box-shadow: 0 0 0 3px rgba(31, 79, 138, 0.14);
 }
 
-.centro-autocomplete {
+.autocomplete-wrapper {
     position: relative;
 }
 
-.centro-autocomplete-results {
+.autocomplete-dropdown {
     position: absolute;
     z-index: 1050;
     top: calc(100% + 4px);
     right: 0;
     left: 0;
-    max-height: 280px;
+    max-height: 360px;
     overflow-y: auto;
     border: 1px solid #c8d3df;
     border-radius: 8px;
     background: #ffffff;
-    box-shadow: 0 14px 28px rgba(15, 23, 42, 0.14);
+    box-shadow: 0 16px 34px rgba(15, 23, 42, 0.16);
 }
 
-.centro-autocomplete-option {
+.autocomplete-item {
     display: block;
     width: 100%;
+    min-height: 48px;
     padding: 10px 12px;
     border: 0;
     border-bottom: 1px solid #edf1f5;
@@ -134,30 +135,34 @@ select:focus {
     background: #ffffff;
     color: var(--text);
     text-align: left;
+    cursor: pointer;
 }
 
-.centro-autocomplete-option:last-child {
+.autocomplete-item:last-child {
     border-bottom: 0;
 }
 
-.centro-autocomplete-option:hover,
-.centro-autocomplete-option.is-active {
+.autocomplete-item:hover,
+.autocomplete-item.is-active {
     background: #eef4fb;
 }
 
-.centro-autocomplete-option-name {
+.autocomplete-title {
     display: block;
+    margin-bottom: 2px;
     font-weight: 700;
+    line-height: 1.25;
 }
 
-.centro-autocomplete-option-meta {
+.autocomplete-meta {
     display: block;
     color: var(--text-soft);
     font-size: 12px;
+    line-height: 1.25;
 }
 
-.centro-autocomplete-empty {
-    padding: 10px 12px;
+.autocomplete-empty {
+    padding: 12px;
     color: var(--text-soft);
     font-size: 14px;
 }

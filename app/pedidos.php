@@ -69,6 +69,60 @@ function leerFiltrosListadoPedidosDesdeRequest(array $source): array
     ];
 }
 
+function camposPedidosAutocompletePermitidos(): array
+{
+    return [
+        'codigo_pedido' => 'Codigo pedido',
+        'usuario_creacion' => 'Solicitante',
+    ];
+}
+
+function buscarValoresPedidosAutocomplete(PDO $pdo, string $campo, string $texto, int $limite = 10, ?int $usuarioId = null): array
+{
+    $camposPermitidos = camposPedidosAutocompletePermitidos();
+    if (!array_key_exists($campo, $camposPermitidos)) {
+        throw new InvalidArgumentException('Campo de autocomplete no permitido.');
+    }
+
+    $texto = trim($texto);
+    $limite = max(1, min(20, $limite));
+    $sql = 'SELECT ' . $campo . ' AS value, COUNT(*) AS total
+            FROM pedidos
+            WHERE ' . $campo . ' IS NOT NULL
+              AND TRIM(' . $campo . ') <> \'\'';
+    $params = [];
+
+    if ($usuarioId !== null && $usuarioId > 0) {
+        $sql .= ' AND usuario_creacion_id = :usuario_creacion_id';
+        $params[':usuario_creacion_id'] = $usuarioId;
+    }
+
+    if ($texto !== '') {
+        $sql .= ' AND ' . $campo . ' LIKE :texto';
+        $params[':texto'] = '%' . $texto . '%';
+    }
+
+    $sql .= ' GROUP BY ' . $campo;
+
+    if ($texto !== '') {
+        $sql .= ' ORDER BY CASE WHEN ' . $campo . ' LIKE :prefijo THEN 0 ELSE 1 END ASC, ' . $campo . ' ASC';
+        $params[':prefijo'] = $texto . '%';
+    } else {
+        $sql .= ' ORDER BY ' . $campo . ' ASC';
+    }
+
+    $sql .= ' LIMIT :limite';
+
+    $stmt = $pdo->prepare($sql);
+    foreach ($params as $param => $valor) {
+        $stmt->bindValue($param, $valor);
+    }
+    $stmt->bindValue(':limite', $limite, PDO::PARAM_INT);
+    $stmt->execute();
+
+    return $stmt->fetchAll();
+}
+
 function normalizarIdsPedido(array $ids): array
 {
     $ids = array_map(static fn(mixed $valor): int => (int) $valor, $ids);
