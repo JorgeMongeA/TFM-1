@@ -127,27 +127,107 @@ renderAppLayoutStart(
     <?php if ($error === '' && $registros === []): ?>
         <div class="alert alert-light border mb-0">No hay centros que coincidan con los filtros actuales.</div>
     <?php elseif ($error === ''): ?>
-        <div class="table-responsive custom-table-wrap table-responsive-centros">
-            <table class="table table-hover align-middle mb-0 data-table">
-                <thead>
-                    <tr>
-                        <?php foreach ($columnasTabla as $titulo): ?>
-                            <th scope="col"><?= htmlspecialchars($titulo, ENT_QUOTES, 'UTF-8') ?></th>
-                        <?php endforeach; ?>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($registros as $fila): ?>
+        <div class="centros-scroll-box centros-table-scroll">
+            <div class="centros-scroll-inner">
+                <table class="table table-hover align-middle mb-0 data-table tabla-centros centros-table" id="tabla-centros">
+                    <thead>
                         <tr>
-                            <?php foreach (array_keys($columnasTabla) as $columna): ?>
-                                <?php $valor = $fila[$columna] ?? ''; ?>
-                                <td><?= htmlspecialchars((string) ($valor !== null && $valor !== '' ? $valor : '-'), ENT_QUOTES, 'UTF-8') ?></td>
+                            <?php foreach ($columnasTabla as $columna => $titulo): ?>
+                                <th scope="col" class="centros-sortable" data-columna="<?= htmlspecialchars((string) $columna, ENT_QUOTES, 'UTF-8') ?>" tabindex="0" role="button" aria-sort="none">
+                                    <?= htmlspecialchars($titulo, ENT_QUOTES, 'UTF-8') ?>
+                                </th>
                             <?php endforeach; ?>
                         </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($registros as $fila): ?>
+                            <tr>
+                                <?php foreach (array_keys($columnasTabla) as $columna): ?>
+                                    <?php $valor = $fila[$columna] ?? ''; ?>
+                                    <td><?= htmlspecialchars((string) ($valor !== null && $valor !== '' ? $valor : '-'), ENT_QUOTES, 'UTF-8') ?></td>
+                                <?php endforeach; ?>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
     <?php endif; ?>
 </section>
+<script>
+(() => {
+    const tabla = document.getElementById('tabla-centros');
+    if (!tabla) {
+        return;
+    }
+
+    const tbody = tabla.tBodies[0];
+    if (!tbody) {
+        return;
+    }
+
+    const headers = Array.from(tabla.querySelectorAll('th.centros-sortable'));
+    const collator = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
+
+    const valorCelda = (fila, indice) => {
+        const celda = fila.cells[indice];
+        if (!celda) {
+            return '';
+        }
+        return (celda.textContent || '').trim();
+    };
+
+    const esNumero = (texto) => /^-?\d+(?:[.,]\d+)?$/.test(texto);
+
+    const comparar = (a, b) => {
+        if (esNumero(a) && esNumero(b)) {
+            const numeroA = Number(a.replace(',', '.'));
+            const numeroB = Number(b.replace(',', '.'));
+            if (Number.isFinite(numeroA) && Number.isFinite(numeroB)) {
+                if (numeroA < numeroB) return -1;
+                if (numeroA > numeroB) return 1;
+                return 0;
+            }
+        }
+        return collator.compare(a, b);
+    };
+
+    headers.forEach((header, indice) => {
+        const ordenar = () => {
+            const direccionActual = header.getAttribute('data-direccion') === 'asc' ? 'asc' : 'desc';
+            const siguienteDireccion = direccionActual === 'asc' ? 'desc' : 'asc';
+
+            headers.forEach((h) => {
+                h.classList.remove('is-sorted-asc', 'is-sorted-desc');
+                h.removeAttribute('data-direccion');
+                h.setAttribute('aria-sort', 'none');
+            });
+
+            header.setAttribute('data-direccion', siguienteDireccion);
+            header.classList.add(siguienteDireccion === 'asc' ? 'is-sorted-asc' : 'is-sorted-desc');
+            header.setAttribute('aria-sort', siguienteDireccion === 'asc' ? 'ascending' : 'descending');
+
+            const filas = Array.from(tbody.rows);
+            filas.sort((filaA, filaB) => {
+                const valorA = valorCelda(filaA, indice);
+                const valorB = valorCelda(filaB, indice);
+                const resultado = comparar(valorA, valorB);
+                return siguienteDireccion === 'asc' ? resultado : -resultado;
+            });
+
+            const fragmento = document.createDocumentFragment();
+            filas.forEach((fila) => fragmento.appendChild(fila));
+            tbody.appendChild(fragmento);
+        };
+
+        header.addEventListener('click', ordenar);
+        header.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                ordenar();
+            }
+        });
+    });
+})();
+</script>
 <?php renderAppLayoutEnd(); ?>

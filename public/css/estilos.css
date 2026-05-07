@@ -437,16 +437,53 @@ select:focus {
     white-space: nowrap;
 }
 
-.table-responsive-centros {
+.centros-scroll-box {
     width: 100%;
-    overflow-x: auto;
-    overflow-y: hidden;
+    max-width: 100%;
+    overflow-x: scroll;
+    overflow-y: visible;
+    display: block;
     -webkit-overflow-scrolling: touch;
+    padding-bottom: 12px;
 }
 
-.table-responsive-centros table {
-    min-width: 1400px;
+.centros-scroll-inner {
+    min-width: 1900px;
+    width: 1900px;
+}
+
+.centros-scroll-inner table,
+.centros-scroll-inner .centros-table {
+    width: 1900px;
+    min-width: 1900px;
+    max-width: none;
+    border-collapse: collapse;
     white-space: nowrap;
+}
+
+.centros-scroll-box::-webkit-scrollbar {
+    height: 10px;
+}
+
+.centros-table-scroll {
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--surface);
+}
+
+.centros-table th.centros-sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.centros-table th.centros-sortable.is-sorted-asc::after {
+    content: " ^";
+    font-size: 11px;
+}
+
+.centros-table th.centros-sortable.is-sorted-desc::after {
+    content: " v";
+    font-size: 11px;
 }
 
 .pedidos-disponibles-table-wrap {
