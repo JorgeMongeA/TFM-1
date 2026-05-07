@@ -348,9 +348,14 @@ function renderizarBloqueDestinoAlbaran(
 $tipo = trim((string) ($_REQUEST['tipo'] ?? ''));
 $numeroAlbaran = trim((string) ($_REQUEST['numero_albaran'] ?? ''));
 $seleccionadosIds = leerIdsSeleccionadosDesdeRequest($_REQUEST);
+$pedidoId = (int) ($_REQUEST['pedido_id'] ?? 0);
 
-if ($tipo !== 'salida' || ($seleccionadosIds === [] && $numeroAlbaran === '')) {
-    registrarErrorAlbaran('Peticion de albaran invalida.', ['tipo' => $tipo, 'ids' => $seleccionadosIds, 'numero_albaran' => $numeroAlbaran]);
+if (
+    ($tipo !== 'salida' && $tipo !== 'pedido')
+    || ($tipo === 'salida' && $seleccionadosIds === [] && $numeroAlbaran === '')
+    || ($tipo === 'pedido' && $pedidoId <= 0)
+) {
+    registrarErrorAlbaran('Peticion de albaran invalida.', ['tipo' => $tipo, 'ids' => $seleccionadosIds, 'numero_albaran' => $numeroAlbaran, 'pedido_id' => $pedidoId]);
     mostrarErrorGenericoAlbaran();
     return;
 }
@@ -362,27 +367,73 @@ if (!cargarTcpdfLocal()) {
 
 try {
     $pdo = conectar();
+    $numeroDocumento = $numeroAlbaran !== '' ? $numeroAlbaran : null;
 
-    if ($numeroAlbaran !== '') {
-        $mercanciaSeleccionada = consultarHistoricoPorNumeroAlbaran($pdo, $numeroAlbaran);
-    } else {
-        $mercanciaSeleccionada = consultarInventarioPorIds($pdo, $seleccionadosIds, INVENTARIO_ESTADO_ACTIVO);
-    }
-
-    if ($mercanciaSeleccionada === []) {
-        throw new RuntimeException('No hay mercancia disponible para la solicitud indicada.');
-    }
-
-    if ($numeroAlbaran === '') {
-        $idsEncontrados = array_map(static fn(array $fila): int => (int) ($fila['id'] ?? 0), $mercanciaSeleccionada);
-        $idsNoEncontrados = array_values(array_diff($seleccionadosIds, $idsEncontrados));
-
-        if ($idsNoEncontrados !== []) {
-            throw new RuntimeException('La seleccion contiene mercancias no disponibles.');
+    if ($tipo === 'pedido') {
+        $pedido = consultarPedidoDisponibleParaAlbaranPorId($pdo, $pedidoId);
+        if ($pedido === null) {
+            throw new RuntimeException('El pedido indicado no esta disponible para albaran.');
         }
+
+        if (!(bool) ($pedido['destino_imprimible'] ?? false)) {
+            $mensajeDestino = trim((string) ($pedido['destino_mensaje'] ?? ''));
+            throw new RuntimeException($mensajeDestino !== '' ? $mensajeDestino : 'El pedido no tiene un destino valido para albaran.');
+        }
+
+        $codigoDestinoPedido = trim((string) ($pedido['destino_codigo'] ?? ''));
+        if ($codigoDestinoPedido === '') {
+            throw new RuntimeException('No se ha podido determinar el destino logistico del pedido.');
+        }
+
+        $lineasPedido = $pedido['lineas_pedido'] ?? [];
+        if (!is_array($lineasPedido) || $lineasPedido === []) {
+            throw new RuntimeException('El pedido no contiene lineas para generar el albaran.');
+        }
+
+        $mercanciaSeleccionada = [];
+        foreach ($lineasPedido as $lineaPedido) {
+            $mercanciaSeleccionada[] = [
+                'id' => (int) (($lineaPedido['inventario_id'] ?? 0) > 0 ? $lineaPedido['inventario_id'] : ($lineaPedido['id'] ?? 0)),
+                'editorial' => (string) ($lineaPedido['editorial'] ?? ''),
+                'colegio' => (string) ($lineaPedido['colegio'] ?? ''),
+                'codigo_centro' => (string) ($lineaPedido['codigo_centro'] ?? ''),
+                'ubicacion' => (string) ($lineaPedido['ubicacion'] ?? ''),
+                'fecha_entrada' => $lineaPedido['fecha_entrada'] ?? null,
+                'bultos' => (int) ($lineaPedido['bultos'] ?? 0),
+                'destino' => (string) ($lineaPedido['destino'] ?? ''),
+                'orden' => (string) ($lineaPedido['orden'] ?? ''),
+            ];
+        }
+
+        $numeroDocumento = trim((string) ($pedido['codigo_pedido'] ?? ''));
+        if ($numeroDocumento === '') {
+            $numeroDocumento = 'PEDIDO-' . $pedidoId;
+        }
+
+        $gruposPorDestino = [$codigoDestinoPedido => $mercanciaSeleccionada];
+    } else {
+        if ($numeroAlbaran !== '') {
+            $mercanciaSeleccionada = consultarHistoricoPorNumeroAlbaran($pdo, $numeroAlbaran);
+        } else {
+            $mercanciaSeleccionada = consultarInventarioPorIds($pdo, $seleccionadosIds, INVENTARIO_ESTADO_ACTIVO);
+        }
+
+        if ($mercanciaSeleccionada === []) {
+            throw new RuntimeException('No hay mercancia disponible para la solicitud indicada.');
+        }
+
+        if ($numeroAlbaran === '') {
+            $idsEncontrados = array_map(static fn(array $fila): int => (int) ($fila['id'] ?? 0), $mercanciaSeleccionada);
+            $idsNoEncontrados = array_values(array_diff($seleccionadosIds, $idsEncontrados));
+
+            if ($idsNoEncontrados !== []) {
+                throw new RuntimeException('La seleccion contiene mercancias no disponibles.');
+            }
+        }
+
+        $gruposPorDestino = agruparMercanciaPorDestinoAlbaran($mercanciaSeleccionada);
     }
 
-    $gruposPorDestino = agruparMercanciaPorDestinoAlbaran($mercanciaSeleccionada);
     $fechaGeneracion = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
     $logoPath = dirname(__DIR__) . '/public/assets/img/logo_maximos.png';
     $logoDisponible = is_file($logoPath) ? $logoPath : null;
@@ -399,15 +450,15 @@ try {
     $pdf->SetFont('dejavusans', '', 9);
 
     foreach ($gruposPorDestino as $codigoDestino => $lineas) {
-        renderizarBloqueDestinoAlbaran($pdf, $codigoDestino, $lineas, $fechaGeneracion, $logoDisponible, $numeroAlbaran !== '' ? $numeroAlbaran : null);
+        renderizarBloqueDestinoAlbaran($pdf, $codigoDestino, $lineas, $fechaGeneracion, $logoDisponible, $numeroDocumento);
     }
 
-    $pdf->Output(construirNombreArchivoAlbaran($fechaGeneracion, $numeroAlbaran !== '' ? $numeroAlbaran : null), 'I');
+    $pdf->Output(construirNombreArchivoAlbaran($fechaGeneracion, $numeroDocumento), 'I');
     exit;
 } catch (Throwable $e) {
     registrarErrorAlbaran(
         'Fallo al generar el albaran.',
-        ['tipo' => $tipo, 'ids' => $seleccionadosIds, 'numero_albaran' => $numeroAlbaran],
+        ['tipo' => $tipo, 'ids' => $seleccionadosIds, 'numero_albaran' => $numeroAlbaran, 'pedido_id' => $pedidoId],
         $e
     );
     mostrarErrorGenericoAlbaran();

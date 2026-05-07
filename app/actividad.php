@@ -276,6 +276,7 @@ function timelineBadgePedido(array $evento): string
         'en_preparacion' => 'text-bg-warning',
         'preparado' => 'text-bg-info',
         'completado' => 'text-bg-success',
+        'cancelado' => 'text-bg-dark',
         default => 'text-bg-secondary',
     };
 }
@@ -294,6 +295,7 @@ function timelineIconoPedido(array $evento): string
         'en_preparacion' => '1',
         'preparado' => '2',
         'completado' => '3',
+        'cancelado' => 'X',
         default => '*',
     };
 }

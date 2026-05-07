@@ -17,6 +17,7 @@ const PEDIDO_ESTADO_PENDIENTE = 'pendiente';
 const PEDIDO_ESTADO_EN_PREPARACION = 'en_preparacion';
 const PEDIDO_ESTADO_PREPARADO = 'preparado';
 const PEDIDO_ESTADO_COMPLETADO = 'completado';
+const PEDIDO_ESTADO_CANCELADO = 'cancelado';
 
 function estadosPedidoDisponibles(): array
 {
@@ -25,6 +26,7 @@ function estadosPedidoDisponibles(): array
         PEDIDO_ESTADO_EN_PREPARACION => 'En preparacion',
         PEDIDO_ESTADO_PREPARADO => 'Preparado',
         PEDIDO_ESTADO_COMPLETADO => 'Completado',
+        PEDIDO_ESTADO_CANCELADO => 'Cancelado',
     ];
 }
 
@@ -48,6 +50,7 @@ function claseEstadoPedido(string $estado): string
         PEDIDO_ESTADO_EN_PREPARACION => 'text-bg-warning',
         PEDIDO_ESTADO_PREPARADO => 'text-bg-info',
         PEDIDO_ESTADO_COMPLETADO => 'text-bg-success',
+        PEDIDO_ESTADO_CANCELADO => 'text-bg-dark',
         default => 'text-bg-secondary',
     };
 }
@@ -141,7 +144,7 @@ function estadosPedidoBloqueantesDuplicidad(): array
     ];
 }
 
-function obtenerLineasComprometidasPorInventarioIds(PDO $pdo, array $inventarioIds): array
+function obtenerLineasComprometidasPorInventarioIds(PDO $pdo, array $inventarioIds, ?int $pedidoIdExcluir = null): array
 {
     $inventarioIds = normalizarIdsPedido($inventarioIds);
     if ($inventarioIds === []) {
@@ -164,12 +167,19 @@ function obtenerLineasComprometidasPorInventarioIds(PDO $pdo, array $inventarioI
         $params[$placeholder] = $estadoBloqueante;
     }
 
+    $filtroExclusionPedido = '';
+    if ($pedidoIdExcluir !== null && $pedidoIdExcluir > 0) {
+        $filtroExclusionPedido = ' AND p.id <> :pedido_id_excluir';
+        $params[':pedido_id_excluir'] = $pedidoIdExcluir;
+    }
+
     $stmt = $pdo->prepare(
         'SELECT pl.inventario_id, p.id AS pedido_id, p.codigo_pedido, p.estado, p.fecha_creacion
          FROM pedido_lineas pl
          INNER JOIN pedidos p ON p.id = pl.pedido_id
          WHERE pl.inventario_id IN (' . implode(', ', $placeholdersIds) . ')
            AND p.estado IN (' . implode(', ', $placeholdersEstados) . ')
+           ' . $filtroExclusionPedido . '
          ORDER BY p.fecha_creacion DESC, p.id DESC'
     );
     $stmt->execute($params);
@@ -237,6 +247,31 @@ function pedidosSoportanStockProcesado(PDO $pdo): bool
         }
 
         $cache = in_array('stock_procesado', $columnas, true) && in_array('fecha_stock_procesado', $columnas, true);
+        return $cache;
+    } catch (Throwable $e) {
+        $cache = false;
+        return $cache;
+    }
+}
+
+function pedidosSoportanEstadoCancelado(PDO $pdo): bool
+{
+    static $cache = null;
+
+    if (is_bool($cache)) {
+        return $cache;
+    }
+
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM pedidos LIKE 'estado'");
+        $fila = $stmt->fetch();
+        if (!is_array($fila)) {
+            $cache = false;
+            return $cache;
+        }
+
+        $tipo = strtolower(trim((string) ($fila['Type'] ?? '')));
+        $cache = str_contains($tipo, "'cancelado'");
         return $cache;
     } catch (Throwable $e) {
         $cache = false;
@@ -345,6 +380,35 @@ function usuarioPuedeVerPedido(array $pedido, array $usuario): bool
 
     $username = trim((string) ($usuario['username'] ?? ''));
     return $username !== '' && trim((string) ($pedido['usuario_creacion'] ?? '')) === $username;
+}
+
+function pedidoPerteneceAUsuario(array $pedido, array $usuario): bool
+{
+    $usuarioId = isset($usuario['user_id']) ? (int) $usuario['user_id'] : 0;
+    if ($usuarioId > 0 && (int) ($pedido['usuario_creacion_id'] ?? 0) === $usuarioId) {
+        return true;
+    }
+
+    $username = trim((string) ($usuario['username'] ?? ''));
+    return $username !== '' && trim((string) ($pedido['usuario_creacion'] ?? '')) === $username;
+}
+
+function pedidoEstaEnCreacion(array $pedido): bool
+{
+    return normalizarEstadoPedido((string) ($pedido['estado'] ?? PEDIDO_ESTADO_PENDIENTE)) === PEDIDO_ESTADO_PENDIENTE;
+}
+
+function usuarioPuedeEditarOCancelarPedidoEnCreacion(array $pedido, array $usuario): bool
+{
+    if (!puedeCrearPedidos()) {
+        return false;
+    }
+
+    if (!pedidoEstaEnCreacion($pedido)) {
+        return false;
+    }
+
+    return pedidoPerteneceAUsuario($pedido, $usuario);
 }
 
 function generarCodigoPedidoDesdeId(int $pedidoId, DateTimeInterface $fechaCreacion): string
@@ -546,6 +610,342 @@ function crearPedido(PDO $pdo, array $inventarioIds, array $usuario, string $obs
     }
 }
 
+function actualizarLineasPedidoEnCreacionPorEdelvives(
+    PDO $pdo,
+    int $pedidoId,
+    array $inventarioIdsAgregar,
+    array $inventarioIdsQuitar,
+    array $usuario,
+    ?string $observaciones = null
+): array {
+    if (!puedeCrearPedidos()) {
+        throw new RuntimeException('No tienes permisos para modificar pedidos.');
+    }
+
+    $inventarioIdsAgregar = normalizarIdsPedido($inventarioIdsAgregar);
+    $inventarioIdsQuitar = normalizarIdsPedido($inventarioIdsQuitar);
+    $usuarioId = isset($usuario['user_id']) && (int) $usuario['user_id'] > 0 ? (int) $usuario['user_id'] : null;
+    $username = trim((string) ($usuario['username'] ?? ''));
+    $fechaGestion = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
+
+    try {
+        $pdo->beginTransaction();
+
+        $pedido = bloquearPedidoPorId($pdo, $pedidoId);
+        if ($pedido === null) {
+            throw new RuntimeException('El pedido solicitado no existe.');
+        }
+
+        if (!usuarioPuedeEditarOCancelarPedidoEnCreacion($pedido, $usuario)) {
+            throw new RuntimeException('Solo puedes modificar tus pedidos en estado pendiente.');
+        }
+
+        $inventarioActualPedido = obtenerIdsInventarioPedido($pdo, $pedidoId);
+        $inventarioActualMapa = array_fill_keys($inventarioActualPedido, true);
+
+        $inventarioIdsQuitar = array_values(array_filter(
+            $inventarioIdsQuitar,
+            static fn(int $inventarioId): bool => isset($inventarioActualMapa[$inventarioId])
+        ));
+
+        $inventarioIdsAgregar = array_values(array_filter(
+            $inventarioIdsAgregar,
+            static fn(int $inventarioId): bool => !isset($inventarioActualMapa[$inventarioId])
+        ));
+
+        if ($inventarioIdsAgregar !== []) {
+            $lineasComprometidas = obtenerLineasComprometidasPorInventarioIds($pdo, $inventarioIdsAgregar, $pedidoId);
+            if ($lineasComprometidas !== []) {
+                throw new RuntimeException(construirMensajeLineasComprometidas($lineasComprometidas));
+            }
+
+            $lineasInventarioAgregar = consultarInventarioPorIds($pdo, $inventarioIdsAgregar, INVENTARIO_ESTADO_ACTIVO);
+            $idsEncontrados = array_map(static fn(array $fila): int => (int) ($fila['id'] ?? 0), $lineasInventarioAgregar);
+            $idsNoEncontrados = array_values(array_diff($inventarioIdsAgregar, $idsEncontrados));
+
+            if ($idsNoEncontrados !== []) {
+                throw new RuntimeException('Algunas lineas que intentas anadir ya no estan disponibles en inventario activo.');
+            }
+
+            $stmtLinea = $pdo->prepare(
+                'INSERT INTO pedido_lineas (
+                    pedido_id,
+                    inventario_id,
+                    editorial,
+                    colegio,
+                    codigo_centro,
+                    ubicacion,
+                    fecha_entrada,
+                    bultos,
+                    destino,
+                    `orden`,
+                    indicador_completa
+                 ) VALUES (
+                    :pedido_id,
+                    :inventario_id,
+                    :editorial,
+                    :colegio,
+                    :codigo_centro,
+                    :ubicacion,
+                    :fecha_entrada,
+                    :bultos,
+                    :destino,
+                    :orden,
+                    :indicador_completa
+                 )'
+            );
+
+            foreach ($lineasInventarioAgregar as $linea) {
+                $stmtLinea->execute([
+                    ':pedido_id' => $pedidoId,
+                    ':inventario_id' => (int) ($linea['id'] ?? 0),
+                    ':editorial' => (string) ($linea['editorial'] ?? ''),
+                    ':colegio' => (string) ($linea['colegio'] ?? ''),
+                    ':codigo_centro' => (string) ($linea['codigo_centro'] ?? ''),
+                    ':ubicacion' => (string) ($linea['ubicacion'] ?? ''),
+                    ':fecha_entrada' => ($linea['fecha_entrada'] ?? null) !== '' ? $linea['fecha_entrada'] : null,
+                    ':bultos' => (int) ($linea['bultos'] ?? 0),
+                    ':destino' => ($linea['destino'] ?? null) !== '' ? $linea['destino'] : null,
+                    ':orden' => ($linea['orden'] ?? null) !== '' ? $linea['orden'] : null,
+                    ':indicador_completa' => ($linea['indicador_completa'] ?? null) !== '' ? $linea['indicador_completa'] : null,
+                ]);
+            }
+        }
+
+        if ($inventarioIdsQuitar !== []) {
+            $placeholders = [];
+            $params = [':pedido_id' => $pedidoId];
+
+            foreach ($inventarioIdsQuitar as $indice => $inventarioId) {
+                $placeholder = ':inventario_id_' . $indice;
+                $placeholders[] = $placeholder;
+                $params[$placeholder] = $inventarioId;
+            }
+
+            $stmtQuitar = $pdo->prepare(
+                'DELETE FROM pedido_lineas
+                 WHERE pedido_id = :pedido_id
+                   AND inventario_id IN (' . implode(', ', $placeholders) . ')'
+            );
+            $stmtQuitar->execute($params);
+        }
+
+        $stmtResumen = $pdo->prepare(
+            'SELECT COUNT(*) AS total_lineas, COALESCE(SUM(bultos), 0) AS total_bultos
+             FROM pedido_lineas
+             WHERE pedido_id = :pedido_id'
+        );
+        $stmtResumen->execute([':pedido_id' => $pedidoId]);
+        $resumen = $stmtResumen->fetch();
+
+        $totalLineas = (int) ($resumen['total_lineas'] ?? 0);
+        $totalBultos = (int) ($resumen['total_bultos'] ?? 0);
+
+        if ($totalLineas <= 0) {
+            throw new RuntimeException('El pedido no puede quedarse sin lineas. Quita menos lineas o cancelalo.');
+        }
+
+        $sqlActualizacionPedido = 'UPDATE pedidos
+             SET total_lineas = :total_lineas,
+                 total_bultos = :total_bultos,
+                 usuario_gestion_id = :usuario_gestion_id,
+                 usuario_gestion = :usuario_gestion,
+                 fecha_ultima_gestion = :fecha_ultima_gestion';
+        $paramsActualizacionPedido = [
+            ':total_lineas' => $totalLineas,
+            ':total_bultos' => $totalBultos,
+            ':usuario_gestion_id' => $usuarioId,
+            ':usuario_gestion' => $username !== '' ? $username : null,
+            ':fecha_ultima_gestion' => $fechaGestion->format('Y-m-d H:i:s'),
+            ':id' => $pedidoId,
+        ];
+
+        if ($observaciones !== null) {
+            $sqlActualizacionPedido .= ',
+                 observaciones = :observaciones';
+            $observacionesLimpias = trim($observaciones);
+            $paramsActualizacionPedido[':observaciones'] = $observacionesLimpias !== '' ? $observacionesLimpias : null;
+        }
+
+        $sqlActualizacionPedido .= '
+             WHERE id = :id';
+
+        $stmtActualizacion = $pdo->prepare($sqlActualizacionPedido);
+        $stmtActualizacion->execute($paramsActualizacionPedido);
+
+        $codigoPedido = trim((string) ($pedido['codigo_pedido'] ?? ''));
+        registrarEventoPedido($pdo, $pedidoId, [
+            'tipo_evento' => PEDIDO_EVENTO_CAMBIO_ESTADO,
+            'estado_anterior' => PEDIDO_ESTADO_PENDIENTE,
+            'estado_nuevo' => PEDIDO_ESTADO_PENDIENTE,
+            'usuario_id' => $usuarioId,
+            'usuario' => $username,
+            'descripcion' => sprintf(
+                'Pedido modificado por %s. Anadidas: %d. Quitadas: %d.',
+                $username !== '' ? $username : 'solicitante',
+                count($inventarioIdsAgregar),
+                count($inventarioIdsQuitar)
+            ),
+            'metadata' => [
+                'codigo_pedido' => $codigoPedido,
+                'lineas_anadidas' => count($inventarioIdsAgregar),
+                'lineas_quitadas' => count($inventarioIdsQuitar),
+                'total_lineas' => $totalLineas,
+                'total_bultos' => $totalBultos,
+            ],
+            'fecha_evento' => $fechaGestion,
+        ]);
+
+        registrarActividadSistema($pdo, [
+            'usuario_id' => $usuarioId,
+            'usuario' => $username,
+            'tipo_evento' => ACTIVIDAD_TIPO_PEDIDO_ESTADO,
+            'entidad' => 'pedido',
+            'entidad_id' => $pedidoId,
+            'entidad_codigo' => $codigoPedido !== '' ? $codigoPedido : null,
+            'descripcion' => 'Modificacion de pedido en creacion ' . ($codigoPedido !== '' ? $codigoPedido : '#' . $pedidoId),
+            'metadata' => [
+                'estado' => PEDIDO_ESTADO_PENDIENTE,
+                'lineas_anadidas' => count($inventarioIdsAgregar),
+                'lineas_quitadas' => count($inventarioIdsQuitar),
+                'total_lineas' => $totalLineas,
+                'total_bultos' => $totalBultos,
+            ],
+            'fecha_evento' => $fechaGestion,
+        ]);
+
+        $pdo->commit();
+
+        $pedidoActualizado = consultarPedidoPorId($pdo, $pedidoId);
+        if ($pedidoActualizado === null) {
+            throw new RuntimeException('No se ha podido recuperar el pedido modificado.');
+        }
+
+        return [
+            'pedido' => $pedidoActualizado,
+            'lineas_anadidas' => count($inventarioIdsAgregar),
+            'lineas_quitadas' => count($inventarioIdsQuitar),
+        ];
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        if ($e instanceof RuntimeException) {
+            throw $e;
+        }
+
+        throw new RuntimeException('No se ha podido modificar el pedido en este momento.', 0, $e);
+    }
+}
+
+function cancelarPedidoEnCreacionPorEdelvives(PDO $pdo, int $pedidoId, array $usuario): array
+{
+    if (!puedeCrearPedidos()) {
+        throw new RuntimeException('No tienes permisos para cancelar pedidos.');
+    }
+
+    $usuarioId = isset($usuario['user_id']) && (int) $usuario['user_id'] > 0 ? (int) $usuario['user_id'] : null;
+    $username = trim((string) ($usuario['username'] ?? ''));
+    $fechaGestion = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
+
+    try {
+        $pdo->beginTransaction();
+
+        $pedido = bloquearPedidoPorId($pdo, $pedidoId);
+        if ($pedido === null) {
+            throw new RuntimeException('El pedido solicitado no existe.');
+        }
+
+        if (!usuarioPuedeEditarOCancelarPedidoEnCreacion($pedido, $usuario)) {
+            throw new RuntimeException('Solo puedes cancelar tus pedidos en estado pendiente.');
+        }
+
+        $idsInventario = obtenerIdsInventarioPedido($pdo, $pedidoId);
+        $codigoPedido = trim((string) ($pedido['codigo_pedido'] ?? ''));
+        $soportaCancelado = pedidosSoportanEstadoCancelado($pdo);
+
+        if ($soportaCancelado) {
+            $stmtCancelar = $pdo->prepare(
+                'UPDATE pedidos
+                 SET estado = :estado,
+                     usuario_gestion_id = :usuario_gestion_id,
+                     usuario_gestion = :usuario_gestion,
+                     fecha_ultima_gestion = :fecha_ultima_gestion
+                 WHERE id = :id'
+            );
+            $stmtCancelar->execute([
+                ':estado' => PEDIDO_ESTADO_CANCELADO,
+                ':usuario_gestion_id' => $usuarioId,
+                ':usuario_gestion' => $username !== '' ? $username : null,
+                ':fecha_ultima_gestion' => $fechaGestion->format('Y-m-d H:i:s'),
+                ':id' => $pedidoId,
+            ]);
+
+            registrarEventoPedido($pdo, $pedidoId, [
+                'tipo_evento' => PEDIDO_EVENTO_CAMBIO_ESTADO,
+                'estado_anterior' => PEDIDO_ESTADO_PENDIENTE,
+                'estado_nuevo' => PEDIDO_ESTADO_CANCELADO,
+                'usuario_id' => $usuarioId,
+                'usuario' => $username,
+                'descripcion' => sprintf(
+                    'Pedido cancelado por %s.',
+                    $username !== '' ? $username : 'solicitante'
+                ),
+                'metadata' => [
+                    'codigo_pedido' => $codigoPedido,
+                    'lineas_liberadas' => count($idsInventario),
+                ],
+                'fecha_evento' => $fechaGestion,
+            ]);
+        } else {
+            $stmtEliminarLineas = $pdo->prepare('DELETE FROM pedido_lineas WHERE pedido_id = :pedido_id');
+            $stmtEliminarLineas->execute([':pedido_id' => $pedidoId]);
+
+            $stmtEliminarPedido = $pdo->prepare('DELETE FROM pedidos WHERE id = :id LIMIT 1');
+            $stmtEliminarPedido->execute([':id' => $pedidoId]);
+
+            if ($stmtEliminarPedido->rowCount() !== 1) {
+                throw new RuntimeException('No se ha podido cancelar el pedido en este momento.');
+            }
+        }
+
+        registrarActividadSistema($pdo, [
+            'usuario_id' => $usuarioId,
+            'usuario' => $username,
+            'tipo_evento' => ACTIVIDAD_TIPO_PEDIDO_ESTADO,
+            'entidad' => 'pedido',
+            'entidad_id' => $pedidoId,
+            'entidad_codigo' => $codigoPedido !== '' ? $codigoPedido : null,
+            'descripcion' => 'Cancelacion de pedido en creacion ' . ($codigoPedido !== '' ? $codigoPedido : '#' . $pedidoId),
+            'metadata' => [
+                'estado_nuevo' => PEDIDO_ESTADO_CANCELADO,
+                'lineas_liberadas' => count($idsInventario),
+                'cancelacion_fisica' => !$soportaCancelado,
+            ],
+            'fecha_evento' => $fechaGestion,
+        ]);
+
+        $pdo->commit();
+
+        return [
+            'codigo_pedido' => $codigoPedido,
+            'lineas_liberadas' => count($idsInventario),
+            'cancelacion_fisica' => !$soportaCancelado,
+        ];
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        if ($e instanceof RuntimeException) {
+            throw $e;
+        }
+
+        throw new RuntimeException('No se ha podido cancelar el pedido en este momento.', 0, $e);
+    }
+}
+
 function estadoPedidoProcesaStock(string $estado): bool
 {
     $estado = normalizarEstadoPedido($estado);
@@ -734,6 +1134,9 @@ function actualizarEstadoPedido(PDO $pdo, int $pedidoId, string $estado, array $
         }
 
         $soportaStockProcesado = pedidosSoportanStockProcesado($pdo);
+        if ($estado === PEDIDO_ESTADO_CANCELADO && !pedidosSoportanEstadoCancelado($pdo)) {
+            throw new RuntimeException('El estado cancelado no esta disponible en este entorno.');
+        }
         $estadoAnterior = normalizarEstadoPedido((string) ($pedido['estado'] ?? PEDIDO_ESTADO_PENDIENTE));
         $resultadoStock = null;
         $haMovidoStock = false;

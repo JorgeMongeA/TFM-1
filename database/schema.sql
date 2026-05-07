@@ -101,7 +101,7 @@ CREATE TABLE pedidos (
     codigo_pedido VARCHAR(50) NOT NULL UNIQUE,
     usuario_creacion_id INT NULL,
     usuario_creacion VARCHAR(100) NOT NULL,
-    estado ENUM('pendiente', 'en_preparacion', 'preparado', 'completado') NOT NULL DEFAULT 'pendiente',
+    estado ENUM('pendiente', 'en_preparacion', 'preparado', 'completado', 'cancelado') NOT NULL DEFAULT 'pendiente',
     observaciones TEXT NULL,
     total_lineas INT NOT NULL DEFAULT 0,
     total_bultos INT NOT NULL DEFAULT 0,

@@ -51,6 +51,8 @@ $mensajeInventario = '';
 $tipoMensajeInventario = 'success';
 $columnasTabla = columnasInventarioTabla();
 $csrfAnulacion = tokenAnulacionInventario();
+$hayFiltrosInventario = false;
+$totalBultosMostrados = 0;
 
 if (is_array($flashInventario)) {
     $mensajeInventario = trim((string) ($flashInventario['mensaje'] ?? ''));
@@ -120,6 +122,20 @@ try {
     }
 
     $registros = consultarInventario($pdo, $filtros, $ordenar, $direccion);
+
+    if (usuarioEsAlmacen()) {
+        foreach ($filtros as $valorFiltro) {
+            if (trim((string) $valorFiltro) !== '') {
+                $hayFiltrosInventario = true;
+                break;
+            }
+        }
+
+        $totalBultosMostrados = array_sum(array_map(
+            static fn(array $fila): int => (int) ($fila['bultos'] ?? 0),
+            $registros
+        ));
+    }
 } catch (Throwable $e) {
     error_log('[GOOGLE_SYNC] inventario_consulta.php | ' . $e->getMessage());
     $mensajeError = trim($e->getMessage());
@@ -244,6 +260,15 @@ renderAppLayoutStart(
                     <div class="col-6 col-xl-4"><strong>Filas activas en SQL:</strong> <?= htmlspecialchars((string) ($resultadoReflejoSheets['total_sql'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
                     <div class="col-6 col-xl-4"><strong>Filas escritas en Sheets:</strong> <?= htmlspecialchars((string) ($resultadoReflejoSheets['reemplazados_en_sheet'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
                 </div>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($errorCarga === '' && usuarioEsAlmacen()): ?>
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body">
+                <p class="eyebrow mb-1"><?= $hayFiltrosInventario ? 'Total bultos mostrados' : 'Total bultos en almacen' ?></p>
+                <h2 class="section-title mb-0"><?= htmlspecialchars(number_format($totalBultosMostrados, 0, ',', '.'), ENT_QUOTES, 'UTF-8') ?></h2>
             </div>
         </div>
     <?php endif; ?>

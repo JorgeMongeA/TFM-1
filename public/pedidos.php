@@ -307,8 +307,11 @@ renderAppLayoutStart(
                                     <td><?= htmlspecialchars((string) ($pedido['total_bultos'] ?? 0), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td><?= htmlspecialchars((string) (($pedido['fecha_ultima_gestion'] ?? '') !== '' ? $pedido['fecha_ultima_gestion'] : '-'), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td>
+                                        <?php $pedidoEditableEdelvives = usuarioPuedeEditarOCancelarPedidoEnCreacion($pedido, $usuarioPedido); ?>
                                         <div class="d-flex flex-wrap gap-2">
-                                            <a class="btn btn-sm btn-outline-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/pedido.php?id=<?= rawurlencode((string) ($pedido['id'] ?? 0)) ?>">Abrir</a>
+                                            <a class="btn btn-sm btn-outline-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/pedido.php?id=<?= rawurlencode((string) ($pedido['id'] ?? 0)) ?>">
+                                                <?= $pedidoEditableEdelvives ? 'Modificar' : 'Abrir' ?>
+                                            </a>
                                             <a class="btn btn-sm btn-outline-secondary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/pedido_print.php?id=<?= rawurlencode((string) ($pedido['id'] ?? 0)) ?>" target="_blank" rel="noopener">Imprimir</a>
                                         </div>
                                     </td>

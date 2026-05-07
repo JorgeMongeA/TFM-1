@@ -13,6 +13,7 @@ require_once dirname(__DIR__) . '/app/auth.php';
 require_once dirname(__DIR__) . '/app/layout.php';
 require_once dirname(__DIR__) . '/app/inventario.php';
 require_once dirname(__DIR__) . '/app/albaranes.php';
+require_once dirname(__DIR__) . '/app/pedidos.php';
 require_once dirname(__DIR__) . '/app/salidas.php';
 
 require_login();
@@ -38,6 +39,7 @@ $error = '';
 $aviso = '';
 $mercanciaSeleccionada = [];
 $lineasConfirmadas = [];
+$pedidosDisponiblesAlbaran = [];
 $columnasTabla = columnasInventarioTabla();
 $columnasHistorico = columnasHistoricoTabla();
 $numeroAlbaran = trim((string) ($_GET['numero_albaran'] ?? ''));
@@ -90,6 +92,8 @@ try {
 
         $seleccionadosIds = $idsActivos;
     }
+
+    $pedidosDisponiblesAlbaran = consultarPedidosDisponiblesParaAlbaran($pdo);
 } catch (Throwable $e) {
     $mensaje = trim($e->getMessage());
     $error = $error !== '' ? $error : ($mensaje !== '' ? $mensaje : 'No se pudo cargar el albaran.');
@@ -286,5 +290,93 @@ renderAppLayoutStart(
             </div>
         </div>
     <?php endif; ?>
+
+    <div class="card border-0 shadow-sm mt-4">
+        <div class="card-body">
+            <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-3">
+                <div>
+                    <p class="eyebrow mb-1">Pedidos listos para albaran</p>
+                    <h2 class="section-title mb-1">Impresion de albaranes por pedido</h2>
+                    <p class="mb-0 text-body-secondary">Solo se muestran pedidos preparados/completados listos para salida documental.</p>
+                </div>
+            </div>
+
+            <?php if ($pedidosDisponiblesAlbaran === []): ?>
+                <div class="alert alert-light border mb-0">No hay pedidos preparados/completados disponibles para albaran.</div>
+            <?php else: ?>
+                <div class="table-responsive custom-table-wrap">
+                    <table class="table table-hover align-middle mb-0 data-table">
+                        <thead>
+                            <tr>
+                                <th scope="col">Codigo pedido</th>
+                                <th scope="col">Fecha</th>
+                                <th scope="col">Solicitante</th>
+                                <th scope="col">Destino</th>
+                                <th scope="col">Lineas</th>
+                                <th scope="col">Estado</th>
+                                <th scope="col">Albaran</th>
+                                <th scope="col">Accion</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($pedidosDisponiblesAlbaran as $pedidoSalida): ?>
+                                <?php
+                                $pedidoSalidaId = (int) ($pedidoSalida['id'] ?? 0);
+                                $lineasPedido = (int) ($pedidoSalida['lineas_pedido_total'] ?? 0);
+                                if ($lineasPedido <= 0) {
+                                    $lineasPedido = (int) ($pedidoSalida['total_lineas'] ?? 0);
+                                }
+                                $estadoPedido = (string) ($pedidoSalida['estado'] ?? '');
+                                $destinoImprimible = (bool) ($pedidoSalida['destino_imprimible'] ?? false);
+                                $destinoMensaje = trim((string) ($pedidoSalida['destino_mensaje'] ?? ''));
+                                $albaranGenerado = (bool) ($pedidoSalida['albaran_generado'] ?? false);
+                                ?>
+                                <tr>
+                                    <td>
+                                        <a class="link-primary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/pedido.php?id=<?= rawurlencode((string) $pedidoSalidaId) ?>">
+                                            <?= htmlspecialchars((string) ($pedidoSalida['codigo_pedido'] ?? '-'), ENT_QUOTES, 'UTF-8') ?>
+                                        </a>
+                                    </td>
+                                    <td><?= htmlspecialchars((string) (($pedidoSalida['fecha_stock_procesado'] ?? '') !== '' ? $pedidoSalida['fecha_stock_procesado'] : ($pedidoSalida['fecha_creacion'] ?? '-')), ENT_QUOTES, 'UTF-8') ?></td>
+                                    <td><?= htmlspecialchars((string) (($pedidoSalida['usuario_creacion'] ?? '') !== '' ? $pedidoSalida['usuario_creacion'] : '-'), ENT_QUOTES, 'UTF-8') ?></td>
+                                    <td>
+                                        <span class="badge text-bg-light border"><?= htmlspecialchars((string) ($pedidoSalida['destino_etiqueta'] ?? '-'), ENT_QUOTES, 'UTF-8') ?></span>
+                                        <?php if (!$destinoImprimible && $destinoMensaje !== ''): ?>
+                                            <div class="small text-danger mt-1"><?= htmlspecialchars($destinoMensaje, ENT_QUOTES, 'UTF-8') ?></div>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td><?= htmlspecialchars((string) $lineasPedido, ENT_QUOTES, 'UTF-8') ?></td>
+                                    <td>
+                                        <span class="badge <?= htmlspecialchars(claseEstadoPedido($estadoPedido), ENT_QUOTES, 'UTF-8') ?>">
+                                            <?= htmlspecialchars(etiquetaEstadoPedido($estadoPedido), ENT_QUOTES, 'UTF-8') ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <?php if ($albaranGenerado): ?>
+                                            <span class="badge text-bg-success">Generado</span>
+                                        <?php else: ?>
+                                            <span class="badge text-bg-secondary">Pendiente</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ($destinoImprimible): ?>
+                                            <a class="btn btn-sm btn-outline-primary"
+                                               href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/albaran_pdf.php?tipo=pedido&amp;pedido_id=<?= rawurlencode((string) $pedidoSalidaId) ?>"
+                                               target="_blank"
+                                               rel="noopener">
+                                                <?= $albaranGenerado ? 'Reimprimir albaran' : 'Imprimir albaran' ?>
+                                            </a>
+                                        <?php else: ?>
+                                            <button class="btn btn-sm btn-outline-secondary" type="button" disabled>No imprimible</button>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
 </section>
 <?php renderAppLayoutEnd(); ?>
