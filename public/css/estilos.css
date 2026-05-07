@@ -437,6 +437,30 @@ select:focus {
     white-space: nowrap;
 }
 
+.pedidos-disponibles-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.pedidos-disponibles-table {
+    min-width: 1200px;
+}
+
+.pedidos-disponibles-table th,
+.pedidos-disponibles-table td {
+    white-space: nowrap;
+}
+
+.badge-estado-pedido {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    vertical-align: middle;
+}
+
 .cabecera-enlace {
     color: #31557d;
     text-decoration: none;

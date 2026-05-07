@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/inventario.php';
+require_once __DIR__ . '/salidas.php';
 require_once __DIR__ . '/actividad.php';
 
 const PEDIDO_ESTADO_PENDIENTE = 'pendiente';
@@ -131,10 +132,133 @@ function normalizarIdsPedido(array $ids): array
     return array_values(array_unique($ids));
 }
 
+function estadosPedidoBloqueantesDuplicidad(): array
+{
+    return [
+        PEDIDO_ESTADO_PENDIENTE,
+        PEDIDO_ESTADO_EN_PREPARACION,
+        PEDIDO_ESTADO_PREPARADO,
+    ];
+}
+
+function obtenerLineasComprometidasPorInventarioIds(PDO $pdo, array $inventarioIds): array
+{
+    $inventarioIds = normalizarIdsPedido($inventarioIds);
+    if ($inventarioIds === []) {
+        return [];
+    }
+
+    $placeholdersIds = [];
+    $params = [];
+
+    foreach ($inventarioIds as $indice => $inventarioId) {
+        $placeholder = ':inventario_id_' . $indice;
+        $placeholdersIds[] = $placeholder;
+        $params[$placeholder] = $inventarioId;
+    }
+
+    $placeholdersEstados = [];
+    foreach (estadosPedidoBloqueantesDuplicidad() as $indiceEstado => $estadoBloqueante) {
+        $placeholder = ':estado_' . $indiceEstado;
+        $placeholdersEstados[] = $placeholder;
+        $params[$placeholder] = $estadoBloqueante;
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT pl.inventario_id, p.id AS pedido_id, p.codigo_pedido, p.estado, p.fecha_creacion
+         FROM pedido_lineas pl
+         INNER JOIN pedidos p ON p.id = pl.pedido_id
+         WHERE pl.inventario_id IN (' . implode(', ', $placeholdersIds) . ')
+           AND p.estado IN (' . implode(', ', $placeholdersEstados) . ')
+         ORDER BY p.fecha_creacion DESC, p.id DESC'
+    );
+    $stmt->execute($params);
+    $filas = $stmt->fetchAll();
+
+    $comprometidas = [];
+    foreach ($filas as $fila) {
+        $inventarioId = (int) ($fila['inventario_id'] ?? 0);
+        if ($inventarioId <= 0 || isset($comprometidas[$inventarioId])) {
+            continue;
+        }
+
+        $comprometidas[$inventarioId] = [
+            'inventario_id' => $inventarioId,
+            'pedido_id' => (int) ($fila['pedido_id'] ?? 0),
+            'codigo_pedido' => trim((string) ($fila['codigo_pedido'] ?? '')),
+            'estado' => normalizarEstadoPedido((string) ($fila['estado'] ?? PEDIDO_ESTADO_PENDIENTE)),
+            'fecha_creacion' => trim((string) ($fila['fecha_creacion'] ?? '')),
+        ];
+    }
+
+    return $comprometidas;
+}
+
+function construirMensajeLineasComprometidas(array $lineasComprometidas): string
+{
+    if ($lineasComprometidas === []) {
+        return '';
+    }
+
+    $detalles = [];
+    foreach ($lineasComprometidas as $linea) {
+        $inventarioId = (int) ($linea['inventario_id'] ?? 0);
+        $codigoPedido = trim((string) ($linea['codigo_pedido'] ?? ''));
+        $estado = normalizarEstadoPedido((string) ($linea['estado'] ?? PEDIDO_ESTADO_PENDIENTE));
+        $detalles[] = sprintf(
+            'ID %d (%s, %s)',
+            $inventarioId,
+            $codigoPedido !== '' ? $codigoPedido : 'pedido en curso',
+            strtolower(etiquetaEstadoPedido($estado))
+        );
+
+        if (count($detalles) >= 5) {
+            break;
+        }
+    }
+
+    return 'Algunas lineas ya estan incluidas en pedidos en curso y no se pueden volver a solicitar: ' . implode(', ', $detalles) . '.';
+}
+
+function pedidosSoportanStockProcesado(PDO $pdo): bool
+{
+    static $cache = null;
+
+    if (is_bool($cache)) {
+        return $cache;
+    }
+
+    try {
+        $stmt = $pdo->query('SHOW COLUMNS FROM pedidos');
+        $columnas = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+        if (!is_array($columnas)) {
+            $cache = false;
+            return $cache;
+        }
+
+        $cache = in_array('stock_procesado', $columnas, true) && in_array('fecha_stock_procesado', $columnas, true);
+        return $cache;
+    } catch (Throwable $e) {
+        $cache = false;
+        return $cache;
+    }
+}
+
+function columnasStockProcesadoSelect(PDO $pdo): string
+{
+    if (pedidosSoportanStockProcesado($pdo)) {
+        return 'stock_procesado, fecha_stock_procesado';
+    }
+
+    return '0 AS stock_procesado, NULL AS fecha_stock_procesado';
+}
+
 function consultarPedidos(PDO $pdo, array $filtros = [], ?int $usuarioId = null): array
 {
+    $columnasStock = columnasStockProcesadoSelect($pdo);
     $sql = 'SELECT id, codigo_pedido, usuario_creacion_id, usuario_creacion, estado, observaciones, total_lineas, total_bultos,
-                   usuario_gestion_id, usuario_gestion, fecha_creacion, fecha_ultima_gestion
+                   usuario_gestion_id, usuario_gestion, fecha_creacion, fecha_ultima_gestion,
+                   ' . $columnasStock . '
             FROM pedidos
             WHERE 1 = 1';
     $params = [];
@@ -176,9 +300,11 @@ function consultarPedidoPorId(PDO $pdo, int $pedidoId): ?array
         return null;
     }
 
+    $columnasStock = columnasStockProcesadoSelect($pdo);
     $stmt = $pdo->prepare(
         'SELECT id, codigo_pedido, usuario_creacion_id, usuario_creacion, estado, observaciones, total_lineas, total_bultos,
-                usuario_gestion_id, usuario_gestion, fecha_creacion, fecha_ultima_gestion
+                usuario_gestion_id, usuario_gestion, fecha_creacion, fecha_ultima_gestion,
+                ' . $columnasStock . '
          FROM pedidos
          WHERE id = :id
          LIMIT 1'
@@ -262,6 +388,11 @@ function crearPedido(PDO $pdo, array $inventarioIds, array $usuario, string $obs
 
     try {
         $pdo->beginTransaction();
+
+        $lineasComprometidas = obtenerLineasComprometidasPorInventarioIds($pdo, $inventarioIds);
+        if ($lineasComprometidas !== []) {
+            throw new RuntimeException(construirMensajeLineasComprometidas($lineasComprometidas));
+        }
 
         $lineasInventario = consultarInventarioPorIds($pdo, $inventarioIds, INVENTARIO_ESTADO_ACTIVO);
         $idsEncontrados = array_map(static fn(array $fila): int => (int) ($fila['id'] ?? 0), $lineasInventario);
@@ -415,19 +546,181 @@ function crearPedido(PDO $pdo, array $inventarioIds, array $usuario, string $obs
     }
 }
 
+function estadoPedidoProcesaStock(string $estado): bool
+{
+    $estado = normalizarEstadoPedido($estado);
+
+    return in_array($estado, [PEDIDO_ESTADO_PREPARADO, PEDIDO_ESTADO_COMPLETADO], true);
+}
+
+function bloquearPedidoPorId(PDO $pdo, int $pedidoId): ?array
+{
+    if ($pedidoId <= 0) {
+        return null;
+    }
+
+    $columnasStock = columnasStockProcesadoSelect($pdo);
+    $stmt = $pdo->prepare(
+        'SELECT id, codigo_pedido, usuario_creacion_id, usuario_creacion, estado, observaciones, total_lineas, total_bultos,
+                usuario_gestion_id, usuario_gestion, fecha_creacion, fecha_ultima_gestion, ' . $columnasStock . '
+         FROM pedidos
+         WHERE id = :id
+         LIMIT 1
+         FOR UPDATE'
+    );
+    $stmt->execute([':id' => $pedidoId]);
+    $pedido = $stmt->fetch();
+
+    return is_array($pedido) ? $pedido : null;
+}
+
+function obtenerIdsInventarioPedido(PDO $pdo, int $pedidoId): array
+{
+    if ($pedidoId <= 0) {
+        return [];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT inventario_id
+         FROM pedido_lineas
+         WHERE pedido_id = :pedido_id
+         ORDER BY id ASC
+         FOR UPDATE'
+    );
+    $stmt->execute([':pedido_id' => $pedidoId]);
+
+    return normalizarIdsPedido($stmt->fetchAll(PDO::FETCH_COLUMN));
+}
+
+function construirNumeroSalidaPedido(array $pedido, int $albaranId, DateTimeInterface $fechaConfirmacion): string
+{
+    $codigoPedido = trim((string) ($pedido['codigo_pedido'] ?? ''));
+    if ($codigoPedido !== '') {
+        return substr($codigoPedido, 0, 50);
+    }
+
+    return 'PED-' . $fechaConfirmacion->format('Ymd') . '-' . str_pad((string) $albaranId, 6, '0', STR_PAD_LEFT);
+}
+
+function procesarStockPedido(
+    PDO $pdo,
+    array $pedido,
+    string $estadoFinal,
+    array $usuario,
+    DateTimeImmutable $fechaGestion
+): array {
+    if ((int) ($pedido['stock_procesado'] ?? 0) === 1) {
+        return [
+            'movido_stock' => false,
+            'solo_historico' => true,
+            'numero_salida' => trim((string) ($pedido['codigo_pedido'] ?? '')),
+            'lineas_procesadas' => 0,
+            'lineas_ya_historico' => 0,
+        ];
+    }
+
+    $pedidoId = (int) ($pedido['id'] ?? 0);
+    $inventarioIds = obtenerIdsInventarioPedido($pdo, $pedidoId);
+    if ($inventarioIds === []) {
+        throw new RuntimeException('El pedido no contiene lineas para procesar stock.');
+    }
+
+    $lineasInventario = bloquearLineasInventarioParaConfirmacion($pdo, $inventarioIds);
+    $lineasPorId = [];
+    foreach ($lineasInventario as $lineaInventario) {
+        $lineasPorId[(int) ($lineaInventario['id'] ?? 0)] = $lineaInventario;
+    }
+
+    $idsNoEncontrados = array_values(array_diff($inventarioIds, array_keys($lineasPorId)));
+    if ($idsNoEncontrados !== []) {
+        throw new RuntimeException('Algunas lineas del pedido no existen en inventario y no se puede completar la salida.');
+    }
+
+    $idsActivos = [];
+    $idsHistorico = [];
+    $idsNoValidos = [];
+
+    foreach ($inventarioIds as $inventarioId) {
+        $linea = $lineasPorId[$inventarioId] ?? null;
+        $estadoLinea = (string) ($linea['estado'] ?? '');
+
+        if ($estadoLinea === INVENTARIO_ESTADO_ACTIVO) {
+            $idsActivos[] = $inventarioId;
+            continue;
+        }
+
+        if ($estadoLinea === INVENTARIO_ESTADO_HISTORICO) {
+            $idsHistorico[] = $inventarioId;
+            continue;
+        }
+
+        $idsNoValidos[] = $inventarioId;
+    }
+
+    if ($idsNoValidos !== []) {
+        throw new RuntimeException('No se puede procesar stock porque hay lineas fuera de estado activo/historico.');
+    }
+
+    $usuarioId = isset($usuario['user_id']) && (int) $usuario['user_id'] > 0 ? (int) $usuario['user_id'] : null;
+    $username = trim((string) ($usuario['username'] ?? ''));
+    $numeroSalida = construirNumeroSalidaPedido($pedido, $pedidoId, $fechaGestion);
+
+    if ($idsActivos === []) {
+        return [
+            'movido_stock' => false,
+            'solo_historico' => true,
+            'numero_salida' => $numeroSalida,
+            'lineas_procesadas' => 0,
+            'lineas_ya_historico' => count($idsHistorico),
+        ];
+    }
+
+    if ($idsActivos !== []) {
+        $lineasActivas = [];
+        foreach ($idsActivos as $idActivo) {
+            $lineasActivas[] = $lineasPorId[$idActivo];
+        }
+
+        $resumen = resumirLineasAlbaranConfirmado($lineasActivas);
+        $albaranId = insertarCabeceraAlbaranSalida($pdo, $resumen, $fechaGestion, $usuarioId, $username);
+        actualizarNumeroAlbaranCabecera($pdo, $albaranId, $numeroSalida);
+        insertarLineasAlbaranSalida($pdo, $albaranId, $idsActivos);
+        moverLineasInventarioAHistorico($pdo, $idsActivos, $numeroSalida, $fechaGestion, $usuarioId, $username);
+
+        registrarActividadSistema($pdo, [
+            'usuario_id' => $usuarioId,
+            'usuario' => $username,
+            'tipo_evento' => ACTIVIDAD_TIPO_PEDIDO_STOCK,
+            'entidad' => 'pedido',
+            'entidad_id' => $pedidoId,
+            'entidad_codigo' => trim((string) ($pedido['codigo_pedido'] ?? '')) !== '' ? (string) $pedido['codigo_pedido'] : null,
+            'descripcion' => 'Stock descontado para pedido ' . (trim((string) ($pedido['codigo_pedido'] ?? '')) !== '' ? (string) $pedido['codigo_pedido'] : '#' . $pedidoId),
+            'metadata' => [
+                'estado_final' => $estadoFinal,
+                'numero_salida' => $numeroSalida,
+                'lineas_procesadas' => count($idsActivos),
+                'lineas_ya_historico' => count($idsHistorico),
+            ],
+            'fecha_evento' => $fechaGestion,
+        ]);
+    }
+
+    return [
+        'movido_stock' => true,
+        'solo_historico' => false,
+        'numero_salida' => $numeroSalida,
+        'lineas_procesadas' => count($idsActivos),
+        'lineas_ya_historico' => count($idsHistorico),
+    ];
+}
+
 function actualizarEstadoPedido(PDO $pdo, int $pedidoId, string $estado, array $usuario): void
 {
     if (!puedeGestionarPedidos()) {
         throw new RuntimeException('No tienes permisos para gestionar pedidos.');
     }
 
-    $pedido = consultarPedidoPorId($pdo, $pedidoId);
-    if ($pedido === null) {
-        throw new RuntimeException('El pedido solicitado no existe.');
-    }
-
     $estado = normalizarEstadoPedido($estado);
-    $estadoAnterior = normalizarEstadoPedido((string) ($pedido['estado'] ?? PEDIDO_ESTADO_PENDIENTE));
     $usuarioId = isset($usuario['user_id']) && (int) $usuario['user_id'] > 0 ? (int) $usuario['user_id'] : null;
     $username = trim((string) ($usuario['username'] ?? ''));
     $fechaGestion = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
@@ -435,21 +728,73 @@ function actualizarEstadoPedido(PDO $pdo, int $pedidoId, string $estado, array $
     try {
         $pdo->beginTransaction();
 
-        $stmt = $pdo->prepare(
-            'UPDATE pedidos
+        $pedido = bloquearPedidoPorId($pdo, $pedidoId);
+        if ($pedido === null) {
+            throw new RuntimeException('El pedido solicitado no existe.');
+        }
+
+        $soportaStockProcesado = pedidosSoportanStockProcesado($pdo);
+        $estadoAnterior = normalizarEstadoPedido((string) ($pedido['estado'] ?? PEDIDO_ESTADO_PENDIENTE));
+        $resultadoStock = null;
+        $haMovidoStock = false;
+        $soloHistorico = false;
+        $seHaProcesadoStock = false;
+
+        $pedidoYaProcesado = $soportaStockProcesado && (int) ($pedido['stock_procesado'] ?? 0) === 1;
+        if (estadoPedidoProcesaStock($estado) && !$pedidoYaProcesado) {
+            $resultadoStock = procesarStockPedido($pdo, $pedido, $estado, $usuario, $fechaGestion);
+            $haMovidoStock = (bool) ($resultadoStock['movido_stock'] ?? false);
+            $soloHistorico = (bool) ($resultadoStock['solo_historico'] ?? false);
+            $seHaProcesadoStock = $haMovidoStock || ($soportaStockProcesado && $soloHistorico);
+        }
+
+        $sqlActualizacionPedido = 'UPDATE pedidos
              SET estado = :estado,
                  usuario_gestion_id = :usuario_gestion_id,
                  usuario_gestion = :usuario_gestion,
-                 fecha_ultima_gestion = :fecha_ultima_gestion
-             WHERE id = :id'
-        );
-        $stmt->execute([
+                 fecha_ultima_gestion = :fecha_ultima_gestion';
+        $paramsActualizacionPedido = [
             ':estado' => $estado,
             ':usuario_gestion_id' => $usuarioId,
             ':usuario_gestion' => $username !== '' ? $username : null,
             ':fecha_ultima_gestion' => $fechaGestion->format('Y-m-d H:i:s'),
             ':id' => $pedidoId,
-        ]);
+        ];
+
+        if ($seHaProcesadoStock && $soportaStockProcesado) {
+            $sqlActualizacionPedido .= ',
+                 stock_procesado = 1,
+                 fecha_stock_procesado = :fecha_stock_procesado';
+            $paramsActualizacionPedido[':fecha_stock_procesado'] = $fechaGestion->format('Y-m-d H:i:s');
+        }
+
+        $sqlActualizacionPedido .= '
+             WHERE id = :id';
+
+        $stmt = $pdo->prepare($sqlActualizacionPedido);
+        $stmt->execute($paramsActualizacionPedido);
+
+        if ($haMovidoStock) {
+            $codigoPedido = trim((string) ($pedido['codigo_pedido'] ?? ''));
+            $descripcionStock = $estado === PEDIDO_ESTADO_PREPARADO
+                ? 'Stock descontado por preparacion de pedido.'
+                : 'Stock descontado por completado de pedido.';
+
+            registrarEventoPedido($pdo, $pedidoId, [
+                'tipo_evento' => PEDIDO_EVENTO_STOCK_PROCESADO,
+                'estado_nuevo' => $estado,
+                'usuario_id' => $usuarioId,
+                'usuario' => $username,
+                'descripcion' => $descripcionStock,
+                'metadata' => [
+                    'codigo_pedido' => $codigoPedido,
+                    'numero_salida' => (string) ($resultadoStock['numero_salida'] ?? ''),
+                    'lineas_procesadas' => (int) ($resultadoStock['lineas_procesadas'] ?? 0),
+                    'lineas_ya_historico' => (int) ($resultadoStock['lineas_ya_historico'] ?? 0),
+                ],
+                'fecha_evento' => $fechaGestion,
+            ]);
+        }
 
         if ($estadoAnterior !== $estado) {
             $codigoPedido = trim((string) ($pedido['codigo_pedido'] ?? ''));

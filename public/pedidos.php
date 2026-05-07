@@ -22,6 +22,7 @@ $filtrosInventario = leerFiltrosInventarioDesdeRequest($_GET);
 [$ordenarInventario, $direccionInventario] = leerOrdenInventarioDesdeRequest($_GET);
 $filtrosPedidos = leerFiltrosListadoPedidosDesdeRequest($_GET);
 $inventarioDisponible = [];
+$lineasComprometidas = [];
 $pedidos = [];
 $error = '';
 $mensaje = '';
@@ -83,6 +84,11 @@ try {
 
     if (puedeCrearPedidos()) {
         $inventarioDisponible = consultarInventario($pdo, $filtrosInventario, $ordenarInventario, $direccionInventario);
+        $inventarioIdsDisponibles = array_map(
+            static fn(array $fila): int => (int) ($fila['id'] ?? 0),
+            $inventarioDisponible
+        );
+        $lineasComprometidas = obtenerLineasComprometidasPorInventarioIds($pdo, $inventarioIdsDisponibles);
         $pedidos = consultarPedidos($pdo, $filtrosPedidos, (int) ($usuarioPedido['user_id'] ?? 0));
     } elseif (puedeGestionarPedidos()) {
         $pedidos = consultarPedidos($pdo, $filtrosPedidos);
@@ -170,8 +176,8 @@ renderAppLayoutStart(
                     <?php if ($inventarioDisponible === []): ?>
                         <div class="alert alert-light border mb-0">No hay mercancia activa con los filtros indicados.</div>
                     <?php else: ?>
-                        <div class="table-responsive custom-table-wrap">
-                            <table class="table table-hover align-middle mb-0 data-table">
+                        <div class="table-responsive custom-table-wrap pedidos-disponibles-table-wrap">
+                            <table class="table table-hover align-middle mb-0 data-table pedidos-disponibles-table">
                                 <thead>
                                     <tr>
                                         <th scope="col" style="width: 56px;">Sel.</th>
@@ -193,9 +199,23 @@ renderAppLayoutStart(
                                 <tbody>
                                     <?php foreach ($inventarioDisponible as $fila): ?>
                                         <?php $filaId = (int) ($fila['id'] ?? 0); ?>
+                                        <?php $lineaComprometida = $lineasComprometidas[$filaId] ?? null; ?>
                                         <tr>
                                             <td>
-                                                <input class="form-check-input pedido-checkbox" type="checkbox" name="seleccionados[]" value="<?= htmlspecialchars((string) $filaId, ENT_QUOTES, 'UTF-8') ?>">
+                                                <?php
+                                                $codigoPedidoComprometido = is_array($lineaComprometida) ? trim((string) ($lineaComprometida['codigo_pedido'] ?? '')) : '';
+                                                $estadoComprometido = is_array($lineaComprometida) ? etiquetaEstadoPedido((string) ($lineaComprometida['estado'] ?? '')) : '';
+                                                $detalleCompromiso = is_array($lineaComprometida)
+                                                    ? 'Ya incluida en pedido en curso ' . ($codigoPedidoComprometido !== '' ? $codigoPedidoComprometido . ' - ' : '') . $estadoComprometido
+                                                    : '';
+                                                ?>
+                                                <input class="form-check-input pedido-checkbox" type="checkbox" name="seleccionados[]" value="<?= htmlspecialchars((string) $filaId, ENT_QUOTES, 'UTF-8') ?>"<?= is_array($lineaComprometida) ? ' disabled title="' . htmlspecialchars($detalleCompromiso, ENT_QUOTES, 'UTF-8') . '"' : '' ?>>
+                                                <?php if (is_array($lineaComprometida)): ?>
+                                                    <span class="badge badge-estado-pedido <?= htmlspecialchars(claseEstadoPedido((string) ($lineaComprometida['estado'] ?? '')), ENT_QUOTES, 'UTF-8') ?> ms-2"
+                                                          title="<?= htmlspecialchars($detalleCompromiso, ENT_QUOTES, 'UTF-8') ?>">
+                                                        <?= htmlspecialchars($estadoComprometido, ENT_QUOTES, 'UTF-8') ?>
+                                                    </span>
+                                                <?php endif; ?>
                                             </td>
                                             <?php foreach (array_keys($columnasInventario) as $columna): ?>
                                                 <?php $valor = $fila[$columna] ?? ''; ?>
@@ -334,7 +354,7 @@ const pedidosAutocompleteEndpoint = <?= json_encode(BASE_URL . '/pedidos_autocom
 
 <?php if (puedeCrearPedidos()): ?>
 <script>
-const pedidoCheckboxes = Array.from(document.querySelectorAll('.pedido-checkbox'));
+const pedidoCheckboxes = Array.from(document.querySelectorAll('.pedido-checkbox:not(:disabled)'));
 const seleccionarTodoPedido = document.getElementById('seleccionar_todo_pedido');
 const limpiarSeleccionPedido = document.getElementById('limpiar_seleccion_pedido');
 

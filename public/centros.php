@@ -21,11 +21,16 @@ $error = '';
 $resultadoSincronizacion = null;
 $filtros = leerFiltrosCentrosDesdeRequest($_GET);
 $columnasTabla = columnasCentrosTabla();
+$puedeAdministrarCentros = puedeEditarCentros();
 
 try {
     $pdo = conectar();
 
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+        if (!$puedeAdministrarCentros) {
+            renderizarAccesoDenegado('No tienes permisos para sincronizar centros.');
+        }
+
         $config = cargarConfiguracion();
         $scriptUrl = obtenerUrlSyncCentrosGoogleSheets($config);
 
@@ -81,6 +86,7 @@ renderAppLayoutStart(
                 </form>
             </div>
         </div>
+        <?php if ($puedeAdministrarCentros): ?>
         <div class="card border-0 shadow-sm sync-card">
             <div class="card-body">
                 <p class="eyebrow">Sincronización</p>
@@ -89,6 +95,7 @@ renderAppLayoutStart(
                 </form>
             </div>
         </div>
+        <?php endif; ?>
     </div>
 
     <?php if ($error !== ''): ?>

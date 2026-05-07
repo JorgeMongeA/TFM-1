@@ -73,7 +73,7 @@ renderAppLayoutStart(
     'Detalle de pedido',
     'pedidos',
     $pedido !== null ? 'Pedido ' . (string) ($pedido['codigo_pedido'] ?? '') : 'Detalle de pedido',
-    'Consulta y gestion interna de solicitudes sin afectar al inventario activo'
+    'Consulta y gestion interna de solicitudes con trazabilidad operativa de stock'
 );
 ?>
 <section class="panel panel-card">
@@ -105,28 +105,39 @@ renderAppLayoutStart(
                 </div>
 
                 <div class="row g-3 mb-4">
-                    <div class="col-12 col-md-3">
+                    <div class="col-12 col-md-6 col-xl-3">
                         <div class="border rounded-3 p-3 h-100 bg-light">
                             <p class="eyebrow mb-1">Estado</p>
                             <div><?= htmlspecialchars(etiquetaEstadoPedido((string) ($pedido['estado'] ?? '')), ENT_QUOTES, 'UTF-8') ?></div>
                         </div>
                     </div>
-                    <div class="col-12 col-md-3">
+                    <div class="col-12 col-md-6 col-xl-3">
                         <div class="border rounded-3 p-3 h-100 bg-light">
                             <p class="eyebrow mb-1">Lineas</p>
                             <div><?= htmlspecialchars((string) ($pedido['total_lineas'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
                         </div>
                     </div>
-                    <div class="col-12 col-md-3">
+                    <div class="col-12 col-md-6 col-xl-3">
                         <div class="border rounded-3 p-3 h-100 bg-light">
                             <p class="eyebrow mb-1">Bultos</p>
                             <div><?= htmlspecialchars((string) ($pedido['total_bultos'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
                         </div>
                     </div>
-                    <div class="col-12 col-md-3">
+                    <div class="col-12 col-md-6 col-xl-3">
                         <div class="border rounded-3 p-3 h-100 bg-light">
                             <p class="eyebrow mb-1">Ultima gestion</p>
                             <div><?= htmlspecialchars((string) (($pedido['fecha_ultima_gestion'] ?? '') !== '' ? $pedido['fecha_ultima_gestion'] : '-'), ENT_QUOTES, 'UTF-8') ?></div>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6 col-xl-3">
+                        <div class="border rounded-3 p-3 h-100 bg-light">
+                            <p class="eyebrow mb-1">Stock</p>
+                            <div>
+                                <?= (int) ($pedido['stock_procesado'] ?? 0) === 1 ? 'Stock descontado' : 'Pendiente de descuento' ?>
+                            </div>
+                            <small class="text-body-secondary">
+                                <?= htmlspecialchars((string) (($pedido['fecha_stock_procesado'] ?? '') !== '' ? $pedido['fecha_stock_procesado'] : '-'), ENT_QUOTES, 'UTF-8') ?>
+                            </small>
                         </div>
                     </div>
                 </div>
@@ -184,6 +195,8 @@ renderAppLayoutStart(
                                                 <span class="badge <?= htmlspecialchars((string) ($evento['badge'] ?? 'text-bg-secondary'), ENT_QUOTES, 'UTF-8') ?>">
                                                     <?php if ((string) ($evento['tipo_evento'] ?? '') === PEDIDO_EVENTO_CREADO): ?>
                                                         Creacion
+                                                    <?php elseif ((string) ($evento['tipo_evento'] ?? '') === PEDIDO_EVENTO_STOCK_PROCESADO): ?>
+                                                        Stock
                                                     <?php else: ?>
                                                         <?= htmlspecialchars(etiquetaEstadoPedido((string) ($evento['estado_nuevo'] ?? '')), ENT_QUOTES, 'UTF-8') ?>
                                                     <?php endif; ?>

@@ -117,9 +117,12 @@ CREATE TABLE pedidos (
     usuario_gestion VARCHAR(100) NULL,
     fecha_creacion DATETIME NOT NULL,
     fecha_ultima_gestion DATETIME NULL,
+    stock_procesado TINYINT(1) NOT NULL DEFAULT 0,
+    fecha_stock_procesado DATETIME NULL,
     creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_pedidos_estado (estado),
+    INDEX idx_pedidos_stock_procesado (stock_procesado),
     INDEX idx_pedidos_usuario_creacion (usuario_creacion_id),
     INDEX idx_pedidos_fecha_creacion (fecha_creacion)
 );

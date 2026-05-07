@@ -12,6 +12,7 @@ require_once __DIR__ . '/auth.php';
 
 const ACTIVIDAD_TIPO_PEDIDO_CREADO = 'pedido_creado';
 const ACTIVIDAD_TIPO_PEDIDO_ESTADO = 'pedido_estado';
+const ACTIVIDAD_TIPO_PEDIDO_STOCK = 'pedido_stock';
 const ACTIVIDAD_TIPO_ALBARAN_CONFIRMADO = 'albaran_confirmado';
 const ACTIVIDAD_TIPO_SYNC_HISTORICO = 'sync_historico';
 const ACTIVIDAD_TIPO_INVENTARIO_ANULADO = 'inventario_anulado';
@@ -19,6 +20,7 @@ const ACTIVIDAD_TIPO_INVENTARIO_PDF = 'inventario_pdf';
 
 const PEDIDO_EVENTO_CREADO = 'pedido_creado';
 const PEDIDO_EVENTO_CAMBIO_ESTADO = 'pedido_estado';
+const PEDIDO_EVENTO_STOCK_PROCESADO = 'pedido_stock';
 
 function obtenerContextoActividadActual(): array
 {
@@ -205,6 +207,7 @@ function actividadBadge(string $tipoEvento): string
     return match ($tipoEvento) {
         ACTIVIDAD_TIPO_PEDIDO_CREADO => 'text-bg-primary',
         ACTIVIDAD_TIPO_PEDIDO_ESTADO => 'text-bg-info',
+        ACTIVIDAD_TIPO_PEDIDO_STOCK => 'text-bg-success',
         ACTIVIDAD_TIPO_ALBARAN_CONFIRMADO => 'text-bg-success',
         ACTIVIDAD_TIPO_SYNC_HISTORICO => 'text-bg-warning',
         ACTIVIDAD_TIPO_INVENTARIO_ANULADO => 'text-bg-dark',
@@ -223,6 +226,7 @@ function actividadEtiqueta(string $tipoEvento): string
     return match ($tipoEvento) {
         ACTIVIDAD_TIPO_PEDIDO_CREADO => 'Pedido',
         ACTIVIDAD_TIPO_PEDIDO_ESTADO => 'Estado',
+        ACTIVIDAD_TIPO_PEDIDO_STOCK => 'Stock',
         ACTIVIDAD_TIPO_ALBARAN_CONFIRMADO => 'Albaran',
         ACTIVIDAD_TIPO_SYNC_HISTORICO => 'Sync',
         ACTIVIDAD_TIPO_INVENTARIO_ANULADO => 'Anulacion',
@@ -241,6 +245,7 @@ function actividadIcono(string $tipoEvento): string
     return match ($tipoEvento) {
         ACTIVIDAD_TIPO_PEDIDO_CREADO => 'P',
         ACTIVIDAD_TIPO_PEDIDO_ESTADO => 'E',
+        ACTIVIDAD_TIPO_PEDIDO_STOCK => 'ST',
         ACTIVIDAD_TIPO_ALBARAN_CONFIRMADO => 'A',
         ACTIVIDAD_TIPO_SYNC_HISTORICO => 'S',
         ACTIVIDAD_TIPO_INVENTARIO_ANULADO => 'X',
@@ -263,6 +268,9 @@ function timelineBadgePedido(array $evento): string
     if ($tipoEvento === PEDIDO_EVENTO_CREADO) {
         return 'text-bg-primary';
     }
+    if ($tipoEvento === PEDIDO_EVENTO_STOCK_PROCESADO) {
+        return 'text-bg-success';
+    }
 
     return match ($estadoNuevo) {
         'en_preparacion' => 'text-bg-warning',
@@ -277,6 +285,9 @@ function timelineIconoPedido(array $evento): string
     $tipoEvento = (string) ($evento['tipo_evento'] ?? '');
     if ($tipoEvento === PEDIDO_EVENTO_CREADO) {
         return '+';
+    }
+    if ($tipoEvento === PEDIDO_EVENTO_STOCK_PROCESADO) {
+        return 'S';
     }
 
     return match ((string) ($evento['estado_nuevo'] ?? '')) {

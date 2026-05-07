@@ -75,6 +75,7 @@ function permisosPorRol(): array
             PERMISO_DASHBOARD,
             PERMISO_INVENTARIO_CONSULTA,
             PERMISO_HISTORICO,
+            PERMISO_CENTROS_CONSULTA,
             PERMISO_PEDIDOS,
             PERMISO_CAMBIAR_PASSWORD,
         ],
