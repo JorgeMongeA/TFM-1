@@ -437,6 +437,18 @@ select:focus {
     white-space: nowrap;
 }
 
+.table-responsive-centros {
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+.table-responsive-centros table {
+    min-width: 1400px;
+    white-space: nowrap;
+}
+
 .pedidos-disponibles-table-wrap {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;

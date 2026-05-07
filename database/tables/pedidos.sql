@@ -1,0 +1,22 @@
+CREATE TABLE pedidos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    codigo_pedido VARCHAR(50) NOT NULL UNIQUE,
+    usuario_creacion_id INT NULL,
+    usuario_creacion VARCHAR(100) NOT NULL,
+    estado ENUM('pendiente', 'en_preparacion', 'preparado', 'completado') NOT NULL DEFAULT 'pendiente',
+    observaciones TEXT NULL,
+    total_lineas INT NOT NULL DEFAULT 0,
+    total_bultos INT NOT NULL DEFAULT 0,
+    usuario_gestion_id INT NULL,
+    usuario_gestion VARCHAR(100) NULL,
+    fecha_creacion DATETIME NOT NULL,
+    fecha_ultima_gestion DATETIME NULL,
+    stock_procesado TINYINT(1) NOT NULL DEFAULT 0,
+    fecha_stock_procesado DATETIME NULL,
+    creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_pedidos_estado (estado),
+    INDEX idx_pedidos_stock_procesado (stock_procesado),
+    INDEX idx_pedidos_usuario_creacion (usuario_creacion_id),
+    INDEX idx_pedidos_fecha_creacion (fecha_creacion)
+);

@@ -44,8 +44,8 @@ Archivos de configuración de la aplicación.
 storage
 Archivos generados en tiempo de ejecución, como logs.
 
-sql
-Scripts SQL para la creación de la base de datos y tablas del sistema.
+database
+Scripts SQL consolidados para la creacion de la base de datos, tablas y archivo historico de migraciones.
 
 ## Configuración en entorno local
 
@@ -53,7 +53,7 @@ Scripts SQL para la creación de la base de datos y tablas del sistema.
 
 2. Crear un archivo config.php a partir de config/config.example.php
 
-3. Importar el archivo sql/schema.sql en una base de datos MySQL
+3. Importar el archivo database/schema.sql en una base de datos MySQL
 
 4. Iniciar el servidor de desarrollo con PHP
 
@@ -87,3 +87,4 @@ La aplicación se desplegará en un servidor de hosting convencional mediante FT
 ## Estado del proyecto
 
 Proyecto en fase de desarrollo como parte del Trabajo Final de Máster.
+

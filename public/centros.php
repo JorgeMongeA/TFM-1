@@ -127,7 +127,7 @@ renderAppLayoutStart(
     <?php if ($error === '' && $registros === []): ?>
         <div class="alert alert-light border mb-0">No hay centros que coincidan con los filtros actuales.</div>
     <?php elseif ($error === ''): ?>
-        <div class="table-responsive custom-table-wrap">
+        <div class="table-responsive custom-table-wrap table-responsive-centros">
             <table class="table table-hover align-middle mb-0 data-table">
                 <thead>
                     <tr>
