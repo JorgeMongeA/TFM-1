@@ -191,6 +191,34 @@ function dibujarValorLineaEtiqueta(
     $pdf->Cell($w, $h, $texto, 0, 1, $alineacion, false, '', 1, false, 'M', 'M');
 }
 
+function dibujarValorMultilineaEtiqueta(
+    $pdf,
+    float $x,
+    float $y,
+    float $w,
+    float $h,
+    string $texto,
+    float $tamanoMaximo,
+    float $tamanoMinimo,
+    string $alineacion = 'C'
+): void {
+    $tamano = $tamanoMaximo;
+
+    while ($tamano > $tamanoMinimo) {
+        $pdf->SetFont('dejavusans', 'B', $tamano);
+        $altoTexto = (float) $pdf->getStringHeight($w, $texto, false, true, '', 1);
+        if ($altoTexto <= $h) {
+            break;
+        }
+        $tamano -= 0.5;
+    }
+
+    $pdf->SetXY($x, $y);
+    $pdf->SetFont('dejavusans', 'B', max($tamano, $tamanoMinimo));
+    $pdf->SetTextColor(0, 0, 0);
+    $pdf->MultiCell($w, $h, $texto, 0, $alineacion, false, 1, '', '', true, 0, false, true, $h, 'M');
+}
+
 function dibujarBloqueEtiqueta($pdf, array $fila, float $x, float $y, float $w, float $h, bool $superior): void
 {
     $colegio = ajustarTextoEtiqueta(limpiarTextoEtiqueta($fila['colegio'] ?? null));
@@ -199,6 +227,7 @@ function dibujarBloqueEtiqueta($pdf, array $fila, float $x, float $y, float $w, 
     $orden = ajustarTextoEtiqueta(limpiarTextoEtiqueta($fila['orden'] ?? null));
     $bultos = limpiarTextoEtiqueta($fila['bultos'] ?? null);
     $ubicacion = ajustarTextoEtiqueta(limpiarTextoEtiqueta($fila['ubicacion'] ?? null));
+    $congregacion = ajustarTextoEtiqueta(limpiarTextoEtiqueta($fila['congregacion_nombre'] ?? null));
 
     $margenExterior = 7.0;
     $cajaX = $x + $margenExterior;
@@ -213,7 +242,6 @@ function dibujarBloqueEtiqueta($pdf, array $fila, float $x, float $y, float $w, 
     $filaInferiorH = 20.0;
     $bloqueIdW = 42.0;
     $bloqueBultosW = 40.0;
-    $bloqueUbicacionW = 86.0;
     $altoCabecera = 6.5;
     $logoPath = dirname(__DIR__) . '/public/assets/img/logo_maximos.png';
 
@@ -295,6 +323,11 @@ function dibujarBloqueEtiqueta($pdf, array $fila, float $x, float $y, float $w, 
     );
 
     $inferiorY = $editorialY + $filaEditorialH + $separacion;
+    $bloqueLogoW = 40.0;
+    $bloqueUbicacionW = round($topW * 0.30, 1);
+    $bloqueCongregacionW = $topW - $bloqueUbicacionW - $bloqueLogoW - ($separacion * 2);
+    $congregacionX = $topX + $bloqueUbicacionW + $separacion;
+
     dibujarCajaEtiqueta($pdf, $topX, $inferiorY, $bloqueUbicacionW, $filaInferiorH, 'UBICACION', $altoCabecera);
     dibujarValorLineaEtiqueta(
         $pdf,
@@ -308,9 +341,22 @@ function dibujarBloqueEtiqueta($pdf, array $fila, float $x, float $y, float $w, 
         14.5
     );
 
+    dibujarCajaEtiqueta($pdf, $congregacionX, $inferiorY, $bloqueCongregacionW, $filaInferiorH, 'CONGREGACION', $altoCabecera);
+    dibujarValorMultilineaEtiqueta(
+        $pdf,
+        $congregacionX + 2.5,
+        $inferiorY + $altoCabecera + 1.9,
+        $bloqueCongregacionW - 5,
+        $filaInferiorH - $altoCabecera - 3.8,
+        $congregacion,
+        calcularTamanoFuenteEtiqueta($congregacion, 16.5, 9.5),
+        9.5,
+        'C'
+    );
+
     if (is_file($logoPath)) {
         $logoW = 22.0;
-        $logoX = $cajaX + $cajaW - $logoW - 6.0;
+        $logoX = $topX + $bloqueUbicacionW + $bloqueCongregacionW + ($separacion * 2) + (($bloqueLogoW - $logoW) / 2);
         $logoY = $cajaY + $cajaH - 18.0;
         $pdf->Image($logoPath, $logoX, $logoY, $logoW, 0, '', '', '', false, 300, '', false, false, 0, false, false, false);
     }
@@ -339,7 +385,7 @@ if (!cargarTcpdfLocalEtiquetas()) {
 
 try {
     $pdo = conectar();
-    $lineas = consultarInventarioPorIds($pdo, $ids, INVENTARIO_ESTADO_ACTIVO);
+    $lineas = consultarInventarioEtiquetasPorIds($pdo, $ids, INVENTARIO_ESTADO_ACTIVO);
 
     if ($lineas === []) {
         throw new RuntimeException('No hay lineas activas disponibles para las etiquetas.');

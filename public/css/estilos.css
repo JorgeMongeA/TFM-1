@@ -437,6 +437,91 @@ select:focus {
     white-space: nowrap;
 }
 
+.inventario-fila-completa td {
+    background: #fde2e2 !important;
+}
+
+.inventario-fila-completa:hover td {
+    background: #f9d6d6 !important;
+}
+
+.inventario-indicador-form {
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.inventario-indicador-checkbox {
+    cursor: pointer;
+}
+
+.inventario-indicador-checkbox:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+.scroll-horizontal-visible {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: scroll;
+    overflow-y: visible;
+    scrollbar-width: auto;
+    scrollbar-color: #6b7280 #e5e7eb;
+    padding-bottom: 16px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.scroll-horizontal-visible::-webkit-scrollbar {
+    height: 14px;
+}
+
+.scroll-horizontal-visible::-webkit-scrollbar-track {
+    background: #e5e7eb;
+    border-radius: 999px;
+}
+
+.scroll-horizontal-visible::-webkit-scrollbar-thumb {
+    background: #6b7280;
+    border-radius: 999px;
+    border: 3px solid #e5e7eb;
+}
+
+.scroll-horizontal-visible::-webkit-scrollbar-thumb:hover {
+    background: #4b5563;
+}
+
+.inventario-scroll-box {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: scroll;
+    overflow-y: visible;
+    display: block;
+    padding-bottom: 16px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.inventario-scroll-inner {
+    width: 1900px;
+    min-width: 1900px;
+    max-width: none;
+    display: block;
+}
+
+.inventario-scroll-inner table,
+.inventario-scroll-inner .inventario-table {
+    width: 1900px;
+    min-width: 1900px;
+    max-width: none;
+    margin: 0;
+    border-collapse: collapse;
+    white-space: nowrap;
+}
+
+.inventario-scroll-box::-webkit-scrollbar {
+    height: 10px;
+}
+
 .centros-scroll-box {
     width: 100%;
     max-width: 100%;
@@ -444,7 +529,7 @@ select:focus {
     overflow-y: visible;
     display: block;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: 12px;
+    padding-bottom: 16px;
 }
 
 .centros-scroll-inner {

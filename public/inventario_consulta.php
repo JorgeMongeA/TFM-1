@@ -37,8 +37,32 @@ function validarTokenAnulacionInventario(string $token): bool
     return is_string($tokenSesion) && $tokenSesion !== '' && hash_equals($tokenSesion, $token);
 }
 
+function tokenIndicadorCompletaInventario(): string
+{
+    iniciar_sesion();
+
+    if (!isset($_SESSION['inventario_indicador_token']) || !is_string($_SESSION['inventario_indicador_token'])) {
+        $_SESSION['inventario_indicador_token'] = bin2hex(random_bytes(32));
+    }
+
+    return $_SESSION['inventario_indicador_token'];
+}
+
+function validarTokenIndicadorCompletaInventario(string $token): bool
+{
+    iniciar_sesion();
+    $tokenSesion = $_SESSION['inventario_indicador_token'] ?? '';
+
+    return is_string($tokenSesion) && $tokenSesion !== '' && hash_equals($tokenSesion, $token);
+}
+
+function filaInventarioUbicacionCompleta(array $fila): bool
+{
+    return indicadorCompletaMarcado($fila['ubicacion_completa_estado'] ?? ($fila['indicador_completa'] ?? null));
+}
+
 $filtros = leerFiltrosInventarioDesdeRequest($_GET);
-[$ordenar, $direccion] = leerOrdenInventarioDesdeRequest($_GET);
+[$ordenar, $direccion] = leerOrdenInventarioDesdeRequest($_GET, columnasInventarioConsultaOrdenables());
 $registros = [];
 $errorCarga = '';
 $resultadoSincronizacion = null;
@@ -49,8 +73,9 @@ unset($_SESSION['flash_inventario'], $_SESSION['flash_sync_historico']);
 
 $mensajeInventario = '';
 $tipoMensajeInventario = 'success';
-$columnasTabla = columnasInventarioTabla();
+$columnasTabla = columnasInventarioConsultaTabla();
 $csrfAnulacion = tokenAnulacionInventario();
+$csrfIndicadorCompleta = tokenIndicadorCompletaInventario();
 $hayFiltrosInventario = false;
 $totalBultosMostrados = 0;
 
@@ -107,6 +132,33 @@ try {
             exit;
         }
 
+        if ($accionInventario === 'actualizar_indicador_completa') {
+            if (!usuarioEsAlmacen()) {
+                renderizarAccesoDenegado('No tienes permisos para actualizar ubicaciones completas.');
+            }
+
+            $token = trim((string) ($_POST['csrf_token_indicador'] ?? ''));
+            if (!validarTokenIndicadorCompletaInventario($token)) {
+                throw new RuntimeException('La sesion de actualizacion de ubicaciones ha caducado. Vuelve a intentarlo.');
+            }
+
+            $ubicacion = normalizarUbicacionInventario($_POST['ubicacion'] ?? '');
+            $completa = trim((string) ($_POST['completa'] ?? '0')) === '1';
+            actualizarIndicadorCompletaPorUbicacion($pdo, $ubicacion, $completa);
+
+            $_SESSION['flash_inventario'] = [
+                'tipo' => 'success',
+                'mensaje' => $completa
+                    ? 'Ubicacion marcada como completa correctamente.'
+                    : 'Ubicacion desmarcada correctamente.',
+            ];
+
+            $returnQuery = trim((string) ($_POST['return_query'] ?? ''));
+            $urlRedireccion = BASE_URL . '/inventario_consulta.php' . ($returnQuery !== '' ? '?' . $returnQuery : '');
+            header('Location: ' . $urlRedireccion);
+            exit;
+        }
+
         requierePermiso(PERMISO_SINCRONIZACIONES, 'No tienes permisos para sincronizar inventario.');
         $config = cargarConfiguracion();
 
@@ -154,17 +206,21 @@ renderAppLayoutStart(
         <div class="card border-0 shadow-sm flex-grow-1">
             <div class="card-body">
                 <form method="GET" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/inventario_consulta.php" class="row g-3 align-items-end" autocomplete="off">
-                    <div class="col-12 col-md-6 col-xl-3">
+                    <div class="col-12 col-md-6 col-xl-2">
                         <label class="form-label" for="editorial">Editorial</label>
                         <input class="form-control" id="editorial" name="editorial" type="text" autocomplete="off" value="<?= htmlspecialchars($filtros['editorial'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
-                    <div class="col-12 col-md-6 col-xl-3">
+                    <div class="col-12 col-md-6 col-xl-2">
                         <label class="form-label" for="colegio">Colegio</label>
                         <input class="form-control" id="colegio" name="colegio" type="text" autocomplete="off" value="<?= htmlspecialchars($filtros['colegio'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
-                    <div class="col-12 col-md-6 col-xl-3">
+                    <div class="col-12 col-md-6 col-xl-2">
                         <label class="form-label" for="codigo_centro">Codigo centro</label>
                         <input class="form-control" id="codigo_centro" name="codigo_centro" type="text" autocomplete="off" value="<?= htmlspecialchars($filtros['codigo_centro'], ENT_QUOTES, 'UTF-8') ?>">
+                    </div>
+                    <div class="col-12 col-md-6 col-xl-3">
+                        <label class="form-label" for="congregacion">Congregacion</label>
+                        <input class="form-control" id="congregacion" name="congregacion" type="text" autocomplete="off" value="<?= htmlspecialchars($filtros['congregacion'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="col-12 col-md-6 col-xl-3">
                         <label class="form-label" for="destino">Destino</label>
@@ -276,65 +332,114 @@ renderAppLayoutStart(
     <?php if ($errorCarga === '' && $registros === []): ?>
         <div class="alert alert-light border mb-0">No se han encontrado registros de inventario con los filtros indicados.</div>
     <?php elseif ($errorCarga === ''): ?>
-        <div class="table-responsive custom-table-wrap">
-            <table class="table table-hover align-middle mb-0 data-table">
-                <thead>
-                    <tr>
-                        <?php foreach ($columnasTabla as $columna => $titulo): ?>
-                            <?php
-                            $parametrosOrden = array_merge($filtros, ['ordenar' => $columna]);
-                            $parametrosOrden['direccion'] = $columna === $ordenar && $direccion === 'ASC' ? 'DESC' : 'ASC';
-                            $urlOrden = BASE_URL . '/inventario_consulta.php?' . http_build_query($parametrosOrden);
-                            ?>
-                            <th scope="col">
-                                <a class="cabecera-enlace<?= $ordenar === $columna ? ' activo' : '' ?>"
-                                   href="<?= htmlspecialchars($urlOrden, ENT_QUOTES, 'UTF-8') ?>">
-                                    <?= htmlspecialchars($titulo, ENT_QUOTES, 'UTF-8') ?>
-                                    <?php if ($ordenar === $columna): ?>
-                                        <span class="orden-indicador"><?= $direccion === 'ASC' ? '^' : 'v' ?></span>
-                                    <?php endif; ?>
-                                </a>
-                            </th>
-                        <?php endforeach; ?>
-                        <?php if (puedeEditarInventario()): ?>
-                            <th scope="col">Acciones</th>
-                        <?php endif; ?>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($registros as $fila): ?>
+        <div class="inventario-scroll-box scroll-horizontal-visible">
+            <div class="inventario-scroll-inner custom-table-wrap">
+                <table class="table table-hover align-middle mb-0 data-table inventario-table">
+                    <thead>
                         <tr>
-                            <?php foreach (array_keys($columnasTabla) as $columna): ?>
-                                <?php $valor = $fila[$columna] ?? ''; ?>
-                                <td><?= htmlspecialchars((string) ($valor !== null && $valor !== '' ? $valor : '-'), ENT_QUOTES, 'UTF-8') ?></td>
+                            <?php foreach ($columnasTabla as $columna => $titulo): ?>
+                                <?php
+                                $parametrosOrden = array_merge($filtros, ['ordenar' => $columna]);
+                                $parametrosOrden['direccion'] = $columna === $ordenar && $direccion === 'ASC' ? 'DESC' : 'ASC';
+                                $urlOrden = BASE_URL . '/inventario_consulta.php?' . http_build_query($parametrosOrden);
+                                ?>
+                                <th scope="col">
+                                    <a class="cabecera-enlace<?= $ordenar === $columna ? ' activo' : '' ?>"
+                                       href="<?= htmlspecialchars($urlOrden, ENT_QUOTES, 'UTF-8') ?>">
+                                        <?= htmlspecialchars($titulo, ENT_QUOTES, 'UTF-8') ?>
+                                        <?php if ($ordenar === $columna): ?>
+                                            <span class="orden-indicador"><?= $direccion === 'ASC' ? '^' : 'v' ?></span>
+                                        <?php endif; ?>
+                                    </a>
+                                </th>
                             <?php endforeach; ?>
                             <?php if (puedeEditarInventario()): ?>
-                                <?php
-                                $filaId = (int) ($fila['id'] ?? 0);
-                                $resumenFila = trim(implode(' | ', array_filter([
-                                    'ID ' . $filaId,
-                                    (string) ($fila['editorial'] ?? ''),
-                                    (string) ($fila['colegio'] ?? ''),
-                                    (string) ($fila['ubicacion'] ?? ''),
-                                ])));
-                                ?>
-                                <td>
-                                    <button
-                                        type="button"
-                                        class="btn btn-sm btn-outline-danger"
-                                        data-bs-toggle="modal"
-                                        data-bs-target="#anularInventarioModal"
-                                        data-inventario-id="<?= htmlspecialchars((string) $filaId, ENT_QUOTES, 'UTF-8') ?>"
-                                        data-inventario-resumen="<?= htmlspecialchars($resumenFila, ENT_QUOTES, 'UTF-8') ?>"
-                                    >
-                                        Borrar
-                                    </button>
-                                </td>
+                                <th scope="col">Acciones</th>
                             <?php endif; ?>
                         </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($registros as $fila): ?>
+                            <?php
+                            $ubicacionCompleta = filaInventarioUbicacionCompleta($fila);
+                            $ubicacionFila = normalizarUbicacionInventario($fila['ubicacion'] ?? '');
+                            ?>
+                            <tr<?= $ubicacionCompleta ? ' class="inventario-fila-completa"' : '' ?>>
+                                <?php foreach (array_keys($columnasTabla) as $columna): ?>
+                                    <?php if ($columna === 'indicador_completa'): ?>
+                                        <td class="text-center">
+                                            <?php if (usuarioEsAlmacen()): ?>
+                                                <?php if ($ubicacionFila !== ''): ?>
+                                                    <form method="POST" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/inventario_consulta.php" class="inventario-indicador-form">
+                                                        <input type="hidden" name="accion" value="actualizar_indicador_completa">
+                                                        <input type="hidden" name="ubicacion" value="<?= htmlspecialchars($ubicacionFila, ENT_QUOTES, 'UTF-8') ?>">
+                                                        <input type="hidden" name="completa" value="<?= $ubicacionCompleta ? '0' : '1' ?>">
+                                                        <input type="hidden" name="csrf_token_indicador" value="<?= htmlspecialchars($csrfIndicadorCompleta, ENT_QUOTES, 'UTF-8') ?>">
+                                                        <input type="hidden" name="return_query" value="<?= htmlspecialchars((string) ($_SERVER['QUERY_STRING'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
+                                                        <input
+                                                            class="form-check-input inventario-indicador-checkbox"
+                                                            type="checkbox"
+                                                            <?= $ubicacionCompleta ? 'checked' : '' ?>
+                                                            onchange="this.form.submit()"
+                                                            aria-label="Marcar ubicacion como completa"
+                                                        >
+                                                    </form>
+                                                <?php else: ?>
+                                                    <input class="form-check-input inventario-indicador-checkbox" type="checkbox" disabled aria-label="Ubicacion no disponible">
+                                                <?php endif; ?>
+                                            <?php else: ?>
+                                                <input
+                                                    class="form-check-input inventario-indicador-checkbox"
+                                                    type="checkbox"
+                                                    <?= $ubicacionCompleta ? 'checked' : '' ?>
+                                                    disabled
+                                                    aria-label="Estado de ubicacion completa"
+                                                >
+                                            <?php endif; ?>
+                                        </td>
+                                    <?php else: ?>
+                                        <?php $valor = $fila[$columna] ?? ''; ?>
+                                        <td><?= htmlspecialchars((string) ($valor !== null && $valor !== '' ? $valor : '-'), ENT_QUOTES, 'UTF-8') ?></td>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                                <?php if (puedeEditarInventario()): ?>
+                                    <?php
+                                    $filaId = (int) ($fila['id'] ?? 0);
+                                    $resumenFila = trim(implode(' | ', array_filter([
+                                        'ID ' . $filaId,
+                                        (string) ($fila['editorial'] ?? ''),
+                                        (string) ($fila['colegio'] ?? ''),
+                                        (string) ($fila['ubicacion'] ?? ''),
+                                    ])));
+                                    $urlEditar = BASE_URL . '/inventario_editar.php?' . http_build_query([
+                                        'id' => $filaId,
+                                        'return_query' => (string) ($_SERVER['QUERY_STRING'] ?? ''),
+                                    ]);
+                                    ?>
+                                    <td>
+                                        <a
+                                            class="btn btn-sm btn-outline-primary me-2"
+                                            href="<?= htmlspecialchars($urlEditar, ENT_QUOTES, 'UTF-8') ?>"
+                                        >
+                                            Editar
+                                        </a>
+                                        <button
+                                            type="button"
+                                            class="btn btn-sm btn-outline-danger"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#anularInventarioModal"
+                                            data-inventario-id="<?= htmlspecialchars((string) $filaId, ENT_QUOTES, 'UTF-8') ?>"
+                                            data-inventario-resumen="<?= htmlspecialchars($resumenFila, ENT_QUOTES, 'UTF-8') ?>"
+                                        >
+                                            Borrar
+                                        </button>
+                                    </td>
+                                <?php endif; ?>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
     <?php endif; ?>
 </section>

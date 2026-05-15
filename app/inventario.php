@@ -14,6 +14,27 @@ const INVENTARIO_ESTADO_ACTIVO = 'activo';
 const INVENTARIO_ESTADO_HISTORICO = 'historico';
 const INVENTARIO_ESTADO_ANULADO = 'anulado';
 
+function normalizarUbicacionInventario(mixed $valor): string
+{
+    return trim((string) $valor);
+}
+
+function indicadorCompletaMarcado(mixed $valor): bool
+{
+    $texto = strtolower(trim((string) $valor));
+
+    if ($texto === '' || $texto === '0' || $texto === 'false' || $texto === 'no' || $texto === 'null') {
+        return false;
+    }
+
+    return true;
+}
+
+function valorPersistenciaIndicadorCompleta(bool $completa): ?string
+{
+    return $completa ? '1' : null;
+}
+
 function columnasInventarioOrdenables(): array
 {
     return [
@@ -67,6 +88,42 @@ function columnasInventarioTabla(): array
     ];
 }
 
+function columnasInventarioConsultaOrdenables(): array
+{
+    return [
+        'id',
+        'editorial',
+        'colegio',
+        'codigo_centro',
+        'congregacion_nombre',
+        'ubicacion',
+        'fecha_entrada',
+        'fecha_salida',
+        'bultos',
+        'destino',
+        'orden',
+        'indicador_completa',
+    ];
+}
+
+function columnasInventarioConsultaTabla(): array
+{
+    return [
+        'id' => 'ID',
+        'editorial' => 'Editorial',
+        'colegio' => 'Colegio',
+        'codigo_centro' => 'Codigo centro',
+        'congregacion_nombre' => 'Congregacion',
+        'ubicacion' => 'Ubicacion',
+        'fecha_entrada' => 'Fecha entrada',
+        'fecha_salida' => 'Fecha salida',
+        'bultos' => 'Bultos',
+        'destino' => 'Destino',
+        'orden' => 'Orden',
+        'indicador_completa' => 'Indicador completa',
+    ];
+}
+
 function columnasHistoricoTabla(): array
 {
     return [
@@ -89,7 +146,7 @@ function columnasHistoricoTabla(): array
 
 function filtrosInventarioPermitidos(): array
 {
-    return ['editorial', 'colegio', 'codigo_centro', 'destino'];
+    return ['editorial', 'colegio', 'codigo_centro', 'congregacion', 'destino'];
 }
 
 function camposInventarioAutocompletePermitidos(): array
@@ -141,7 +198,10 @@ function leerOrdenInventarioDesdeRequest(
 
 function consultarInventario(PDO $pdo, array $filtros, string $ordenar, string $direccion): array
 {
-    return consultarInventarioPorEstado($pdo, INVENTARIO_ESTADO_ACTIVO, $filtros, $ordenar, $direccion);
+    $ordenarPermitido = in_array($ordenar, columnasInventarioConsultaOrdenables(), true) ? $ordenar : 'fecha_entrada';
+    $direccionPermitida = in_array($direccion, ['ASC', 'DESC'], true) ? $direccion : 'ASC';
+
+    return consultarInventarioActivoConCentros($pdo, $filtros, $ordenarPermitido, $direccionPermitida);
 }
 
 function buscarValoresInventarioActivoAutocomplete(PDO $pdo, string $campo, string $texto, int $limite = 10): array
@@ -221,6 +281,119 @@ function consultarInventarioPorEstado(PDO $pdo, string $estado, array $filtros, 
     return $stmt->fetchAll();
 }
 
+function consultarInventarioActivoConCentros(PDO $pdo, array $filtros, string $ordenar, string $direccion): array
+{
+    $ordenesPermitidos = [
+        'id' => 'i.id',
+        'editorial' => 'i.editorial',
+        'colegio' => 'i.colegio',
+        'codigo_centro' => 'i.codigo_centro',
+        'congregacion_nombre' => 'COALESCE(c.congregacion, \'\')',
+        'ubicacion' => 'i.ubicacion',
+        'fecha_entrada' => 'i.fecha_entrada',
+        'fecha_salida' => 'i.fecha_salida',
+        'bultos' => 'i.bultos',
+        'destino' => 'i.destino',
+        'orden' => 'i.`orden`',
+        'indicador_completa' => 'COALESCE(uc.ubicacion_completa_estado, 0)',
+    ];
+
+    $sql = 'SELECT i.id,
+                   i.editorial,
+                   i.colegio,
+                   i.codigo_centro,
+                   COALESCE(c.congregacion, \'\') AS congregacion_nombre,
+                   i.ubicacion,
+                   i.fecha_entrada,
+                   i.fecha_salida,
+                   i.bultos,
+                   i.destino,
+                   i.`orden`,
+                   i.indicador_completa,
+                   COALESCE(uc.ubicacion_completa_estado, 0) AS ubicacion_completa_estado,
+                   i.estado,
+                   i.fecha_confirmacion_salida,
+                   i.usuario_confirmacion,
+                   i.numero_albaran,
+                   i.sync_pendiente_historico,
+                   i.fecha_sync_historico
+            FROM inventario i
+            LEFT JOIN (
+                SELECT codigo_centro, MAX(congregacion) AS congregacion
+                FROM centros
+                GROUP BY codigo_centro
+            ) c
+                ON c.codigo_centro = i.codigo_centro
+            LEFT JOIN (
+                SELECT TRIM(ubicacion) AS ubicacion_clave,
+                       MAX(
+                           CASE
+                               WHEN indicador_completa IS NOT NULL
+                                    AND TRIM(indicador_completa) <> \'\'
+                                    AND TRIM(indicador_completa) <> \'0\'
+                               THEN 1
+                               ELSE 0
+                           END
+                       ) AS ubicacion_completa_estado
+                FROM inventario
+                WHERE estado = :estado_ubicacion
+                  AND TRIM(ubicacion) <> \'\'
+                GROUP BY TRIM(ubicacion)
+            ) uc
+                ON uc.ubicacion_clave = TRIM(i.ubicacion)
+            WHERE i.estado = :estado';
+    $params = [
+        ':estado' => INVENTARIO_ESTADO_ACTIVO,
+        ':estado_ubicacion' => INVENTARIO_ESTADO_ACTIVO,
+    ];
+
+    foreach (filtrosInventarioPermitidos() as $campo) {
+        $valor = trim((string) ($filtros[$campo] ?? ''));
+
+        if ($valor === '') {
+            continue;
+        }
+
+        if ($campo === 'congregacion') {
+            $sql .= ' AND COALESCE(c.congregacion, \'\') LIKE :congregacion';
+            $params[':congregacion'] = '%' . $valor . '%';
+            continue;
+        }
+
+        $sql .= ' AND i.' . $campo . ' LIKE :' . $campo;
+        $params[':' . $campo] = '%' . $valor . '%';
+    }
+
+    $ordenSql = $ordenesPermitidos[$ordenar] ?? $ordenesPermitidos['fecha_entrada'];
+    $sql .= ' ORDER BY ' . $ordenSql . ' ' . $direccion;
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
+    return $stmt->fetchAll();
+}
+
+function actualizarIndicadorCompletaPorUbicacion(PDO $pdo, string $ubicacion, bool $completa): int
+{
+    $ubicacionNormalizada = normalizarUbicacionInventario($ubicacion);
+    if ($ubicacionNormalizada === '') {
+        throw new InvalidArgumentException('La ubicacion indicada no es valida.');
+    }
+
+    $stmt = $pdo->prepare(
+        'UPDATE inventario
+         SET indicador_completa = :indicador_completa
+         WHERE estado = :estado
+           AND TRIM(ubicacion) = :ubicacion'
+    );
+    $stmt->bindValue(':indicador_completa', valorPersistenciaIndicadorCompleta($completa), valorPersistenciaIndicadorCompleta($completa) === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+    $stmt->bindValue(':estado', INVENTARIO_ESTADO_ACTIVO);
+    $stmt->bindValue(':ubicacion', $ubicacionNormalizada);
+    $stmt->execute();
+
+    return $stmt->rowCount();
+}
+
 function consultarInventarioPorCentros(PDO $pdo, array $codigosCentro, string $estado = INVENTARIO_ESTADO_ACTIVO): array
 {
     $estado = normalizarEstadoInventario($estado);
@@ -287,6 +460,66 @@ function consultarInventarioPorIds(PDO $pdo, array $ids, ?string $estado = INVEN
     return $stmt->fetchAll();
 }
 
+function consultarInventarioEtiquetasPorIds(PDO $pdo, array $ids, ?string $estado = INVENTARIO_ESTADO_ACTIVO): array
+{
+    $ids = array_values(array_filter(
+        array_map(static fn(mixed $valor): int => (int) $valor, $ids),
+        static fn(int $valor): bool => $valor > 0
+    ));
+
+    if ($ids === []) {
+        return [];
+    }
+
+    $placeholders = [];
+    $params = [];
+
+    foreach ($ids as $indice => $id) {
+        $placeholder = ':id_' . $indice;
+        $placeholders[] = $placeholder;
+        $params[$placeholder] = $id;
+    }
+
+    $sql = 'SELECT i.id,
+                   i.editorial,
+                   i.colegio,
+                   i.codigo_centro,
+                   i.ubicacion,
+                   i.fecha_entrada,
+                   i.fecha_salida,
+                   i.bultos,
+                   i.destino,
+                   i.`orden`,
+                   i.indicador_completa,
+                   i.estado,
+                   i.fecha_confirmacion_salida,
+                   i.usuario_confirmacion,
+                   i.numero_albaran,
+                   i.sync_pendiente_historico,
+                   i.fecha_sync_historico,
+                   COALESCE(c.congregacion, \'\') AS congregacion_nombre
+            FROM inventario i
+            LEFT JOIN (
+                SELECT codigo_centro, MAX(congregacion) AS congregacion
+                FROM centros
+                GROUP BY codigo_centro
+            ) c
+                ON c.codigo_centro = i.codigo_centro
+            WHERE i.id IN (' . implode(', ', $placeholders) . ')';
+
+    if ($estado !== null) {
+        $params[':estado'] = normalizarEstadoInventario($estado);
+        $sql .= ' AND i.estado = :estado';
+    }
+
+    $sql .= ' ORDER BY i.codigo_centro ASC, i.fecha_entrada DESC, i.id DESC';
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
+    return $stmt->fetchAll();
+}
+
 function consultarInventarioPorId(PDO $pdo, int $id): ?array
 {
     if ($id <= 0) {
@@ -330,6 +563,176 @@ function consultarInventarioPorId(PDO $pdo, int $id): ?array
     $fila = $stmt->fetch();
 
     return is_array($fila) ? $fila : null;
+}
+
+function datosBaseEdicionInventario(): array
+{
+    return [
+        'id' => '',
+        'editorial' => '',
+        'colegio' => '',
+        'codigo_centro' => '',
+        'ubicacion' => '',
+        'fecha_entrada' => '',
+        'bultos' => '',
+        'destino' => '',
+        'orden' => '',
+    ];
+}
+
+function poblarDatosEdicionInventarioDesdeFila(array $fila): array
+{
+    $datos = datosBaseEdicionInventario();
+
+    foreach (array_keys($datos) as $campo) {
+        $datos[$campo] = trim((string) ($fila[$campo] ?? ''));
+    }
+
+    return $datos;
+}
+
+function validarDatosEdicionInventario(array $datos, array $destinosPermitidos = []): array
+{
+    $datosValidados = datosBaseEdicionInventario();
+    foreach (array_keys($datosValidados) as $campo) {
+        $datosValidados[$campo] = trim((string) ($datos[$campo] ?? ''));
+    }
+
+    $id = filter_var($datosValidados['id'], FILTER_VALIDATE_INT, [
+        'options' => ['min_range' => 1],
+    ]);
+    if ($id === false) {
+        throw new RuntimeException('La linea de inventario indicada no es valida.');
+    }
+
+    foreach (['editorial', 'colegio', 'codigo_centro', 'ubicacion', 'fecha_entrada', 'bultos'] as $campoObligatorio) {
+        if ($datosValidados[$campoObligatorio] === '') {
+            throw new RuntimeException('Completa todos los campos obligatorios.');
+        }
+    }
+
+    $fechaEntrada = DateTimeImmutable::createFromFormat('Y-m-d', $datosValidados['fecha_entrada']);
+    $erroresFecha = DateTimeImmutable::getLastErrors();
+    if (!$fechaEntrada instanceof DateTimeImmutable || (($erroresFecha['warning_count'] ?? 0) > 0) || (($erroresFecha['error_count'] ?? 0) > 0)) {
+        throw new RuntimeException('La fecha de entrada no es valida.');
+    }
+
+    $bultos = filter_var($datosValidados['bultos'], FILTER_VALIDATE_INT, [
+        'options' => ['min_range' => 0],
+    ]);
+    if ($bultos === false) {
+        throw new RuntimeException('El numero de bultos debe ser un entero igual o mayor que cero.');
+    }
+
+    $destino = strtoupper($datosValidados['destino']);
+    if ($destino !== '' && $destinosPermitidos !== [] && !in_array($destino, $destinosPermitidos, true)) {
+        throw new RuntimeException('El destino indicado no es valido.');
+    }
+
+    $datosValidados['id'] = (string) $id;
+    $datosValidados['fecha_entrada'] = $fechaEntrada->format('Y-m-d');
+    $datosValidados['bultos'] = (string) $bultos;
+    $datosValidados['destino'] = $destino;
+    $datosValidados['codigo_centro'] = strtoupper($datosValidados['codigo_centro']);
+    $datosValidados['ubicacion'] = normalizarUbicacionInventario($datosValidados['ubicacion']);
+
+    return $datosValidados;
+}
+
+function ubicacionActivaCompleta(PDO $pdo, string $ubicacion, ?int $inventarioIdExcluir = null): bool
+{
+    $ubicacionNormalizada = normalizarUbicacionInventario($ubicacion);
+    if ($ubicacionNormalizada === '') {
+        return false;
+    }
+
+    $sql = 'SELECT MAX(
+                CASE
+                    WHEN indicador_completa IS NOT NULL
+                         AND TRIM(indicador_completa) <> \'\'
+                         AND TRIM(indicador_completa) <> \'0\'
+                    THEN 1
+                    ELSE 0
+                END
+            ) AS completa
+            FROM inventario
+            WHERE estado = :estado
+              AND TRIM(ubicacion) = :ubicacion';
+    $params = [
+        ':estado' => INVENTARIO_ESTADO_ACTIVO,
+        ':ubicacion' => $ubicacionNormalizada,
+    ];
+
+    if ($inventarioIdExcluir !== null && $inventarioIdExcluir > 0) {
+        $sql .= ' AND id <> :id_excluir';
+        $params[':id_excluir'] = $inventarioIdExcluir;
+    }
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
+    return (int) ($stmt->fetchColumn() ?: 0) === 1;
+}
+
+function actualizarLineaInventario(PDO $pdo, int $inventarioId, array $datos): array
+{
+    if ($inventarioId <= 0) {
+        throw new RuntimeException('La linea de inventario indicada no es valida.');
+    }
+
+    $inventario = consultarInventarioPorId($pdo, $inventarioId);
+    if ($inventario === null) {
+        throw new RuntimeException('La linea de inventario solicitada no existe.');
+    }
+
+    if ((string) ($inventario['estado'] ?? '') !== INVENTARIO_ESTADO_ACTIVO) {
+        throw new RuntimeException('Solo se pueden editar lineas activas de inventario.');
+    }
+
+    $ubicacionOriginal = normalizarUbicacionInventario($inventario['ubicacion'] ?? '');
+    $ubicacionNueva = normalizarUbicacionInventario($datos['ubicacion'] ?? '');
+    $inventarioIdExcluir = $ubicacionNueva === $ubicacionOriginal ? null : $inventarioId;
+    $ubicacionDestinoCompleta = ubicacionActivaCompleta($pdo, $ubicacionNueva, $inventarioIdExcluir);
+    $indicadorCompleta = valorPersistenciaIndicadorCompleta($ubicacionDestinoCompleta);
+
+    $stmt = $pdo->prepare(
+        'UPDATE inventario
+         SET editorial = :editorial,
+             colegio = :colegio,
+             codigo_centro = :codigo_centro,
+             ubicacion = :ubicacion,
+             fecha_entrada = :fecha_entrada,
+             bultos = :bultos,
+             destino = :destino,
+             `orden` = :orden,
+             indicador_completa = :indicador_completa
+         WHERE id = :id
+           AND estado = :estado
+         LIMIT 1'
+    );
+    $stmt->bindValue(':editorial', $datos['editorial']);
+    $stmt->bindValue(':colegio', $datos['colegio']);
+    $stmt->bindValue(':codigo_centro', $datos['codigo_centro']);
+    $stmt->bindValue(':ubicacion', $datos['ubicacion']);
+    $stmt->bindValue(':fecha_entrada', $datos['fecha_entrada']);
+    $stmt->bindValue(':bultos', (int) $datos['bultos'], PDO::PARAM_INT);
+    $stmt->bindValue(':destino', $datos['destino'] !== '' ? $datos['destino'] : null, $datos['destino'] !== '' ? PDO::PARAM_STR : PDO::PARAM_NULL);
+    $stmt->bindValue(':orden', $datos['orden'] !== '' ? $datos['orden'] : null, $datos['orden'] !== '' ? PDO::PARAM_STR : PDO::PARAM_NULL);
+    $stmt->bindValue(':indicador_completa', $indicadorCompleta, $indicadorCompleta !== null ? PDO::PARAM_STR : PDO::PARAM_NULL);
+    $stmt->bindValue(':id', $inventarioId, PDO::PARAM_INT);
+    $stmt->bindValue(':estado', INVENTARIO_ESTADO_ACTIVO);
+    $stmt->execute();
+
+    if ($stmt->rowCount() < 0) {
+        throw new RuntimeException('No se pudo actualizar la linea de inventario.');
+    }
+
+    $actualizada = consultarInventarioPorId($pdo, $inventarioId);
+    if ($actualizada === null) {
+        throw new RuntimeException('No se pudo recuperar la linea actualizada.');
+    }
+
+    return $actualizada;
 }
 
 function consultarHistoricoPorNumeroAlbaran(PDO $pdo, string $numeroAlbaran): array

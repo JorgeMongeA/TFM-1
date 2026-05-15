@@ -127,7 +127,7 @@ renderAppLayoutStart(
     <?php if ($error === '' && $registros === []): ?>
         <div class="alert alert-light border mb-0">No hay centros que coincidan con los filtros actuales.</div>
     <?php elseif ($error === ''): ?>
-        <div class="centros-scroll-box centros-table-scroll">
+        <div class="centros-scroll-box centros-table-scroll scroll-horizontal-visible">
             <div class="centros-scroll-inner">
                 <table class="table table-hover align-middle mb-0 data-table tabla-centros centros-table" id="tabla-centros">
                     <thead>
