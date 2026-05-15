@@ -75,8 +75,8 @@ http://localhost:8000
 
 - Acceso web: https://www.maximosl.com/CON/public/login.php
 - \*Credenciales temporales para test y pruebas.\*
-  user: almacen
-  pass: aaa123
+  user: administracion
+  pass: PuestoArriba1
 
 - Acceso GITHUB: https://github.com/JorgeMongeA/TFM-1
 
@@ -87,4 +87,3 @@ La aplicación se desplegará en un servidor de hosting convencional mediante FT
 ## Estado del proyecto
 
 Proyecto en fase de desarrollo como parte del Trabajo Final de Máster.
-
