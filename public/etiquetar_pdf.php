@@ -222,6 +222,8 @@ function dibujarValorMultilineaEtiqueta(
 function dibujarBloqueEtiqueta($pdf, array $fila, float $x, float $y, float $w, float $h, bool $superior): void
 {
     $colegio = ajustarTextoEtiqueta(limpiarTextoEtiqueta($fila['colegio'] ?? null));
+    $codigoCentro = ajustarTextoEtiqueta(limpiarTextoEtiqueta($fila['codigo_centro'] ?? null, ''));
+    $colegioEtiqueta = $codigoCentro !== '' ? ($codigoCentro . ' - ' . $colegio) : $colegio;
     $editorial = ajustarTextoEtiqueta(limpiarTextoEtiqueta($fila['editorial'] ?? null));
     $id = limpiarTextoEtiqueta($fila['id'] ?? null);
     $orden = ajustarTextoEtiqueta(limpiarTextoEtiqueta($fila['orden'] ?? null));
@@ -294,8 +296,8 @@ function dibujarBloqueEtiqueta($pdf, array $fila, float $x, float $y, float $w, 
         $centralY + $altoCabecera + 2,
         $colegioW - 6,
         $filaCentralH - $altoCabecera - 4,
-        $colegio,
-        calcularTamanoFuenteEtiqueta($colegio, 24, 14)
+        $colegioEtiqueta,
+        calcularTamanoFuenteEtiqueta($colegioEtiqueta, 24, 14)
     );
 
     $bultosX = $topX + $colegioW + $separacion;

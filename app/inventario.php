@@ -639,6 +639,227 @@ function validarDatosEdicionInventario(array $datos, array $destinosPermitidos =
     return $datosValidados;
 }
 
+function maximoUbicacionesEntradaInventario(): int
+{
+    return 5;
+}
+
+function datosBaseUbicacionesEntradaInventario(int $maximo = 5): array
+{
+    $maximoNormalizado = max(1, $maximo);
+    $lineas = [];
+
+    for ($indice = 0; $indice < $maximoNormalizado; $indice++) {
+        $lineas[] = [
+            'ubicacion' => '',
+            'bultos' => '',
+        ];
+    }
+
+    return $lineas;
+}
+
+function leerLineasUbicacionEntradaInventario(array $source, ?int $maximo = null): array
+{
+    $maximoNormalizado = max(1, $maximo ?? maximoUbicacionesEntradaInventario());
+    $lineas = datosBaseUbicacionesEntradaInventario($maximoNormalizado);
+    $ubicaciones = $source['ubicaciones'] ?? null;
+    $bultosUbicacion = $source['bultos_ubicacion'] ?? null;
+
+    if (!is_array($ubicaciones) && !is_array($bultosUbicacion)) {
+        $lineas[0]['ubicacion'] = trim((string) ($source['ubicacion'] ?? ''));
+        $lineas[0]['bultos'] = trim((string) ($source['bultos'] ?? ''));
+        return $lineas;
+    }
+
+    if (!is_array($ubicaciones)) {
+        $ubicaciones = [];
+    }
+
+    if (!is_array($bultosUbicacion)) {
+        $bultosUbicacion = [];
+    }
+
+    for ($indice = 0; $indice < $maximoNormalizado; $indice++) {
+        $lineas[$indice]['ubicacion'] = trim((string) ($ubicaciones[$indice] ?? ''));
+        $lineas[$indice]['bultos'] = trim((string) ($bultosUbicacion[$indice] ?? ''));
+    }
+
+    return $lineas;
+}
+
+function validarLineasUbicacionEntradaInventario(array $lineas, mixed $totalBultos = null): array
+{
+    $lineasValidadas = [];
+    $ubicaciones = [];
+    $sumaBultos = 0;
+
+    foreach ($lineas as $linea) {
+        $ubicacion = normalizarUbicacionInventario($linea['ubicacion'] ?? '');
+        $bultosTexto = trim((string) ($linea['bultos'] ?? ''));
+
+        if ($ubicacion === '' && $bultosTexto === '') {
+            continue;
+        }
+
+        if ($ubicacion === '' || $bultosTexto === '') {
+            throw new RuntimeException('Completa la ubicacion y los bultos en cada linea indicada.');
+        }
+
+        $bultos = filter_var($bultosTexto, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+        if ($bultos === false) {
+            throw new RuntimeException('Los bultos por ubicacion deben ser enteros mayores que cero.');
+        }
+
+        $ubicacionClave = function_exists('mb_strtolower')
+            ? mb_strtolower($ubicacion, 'UTF-8')
+            : strtolower($ubicacion);
+        if (isset($ubicaciones[$ubicacionClave])) {
+            throw new RuntimeException('No se permiten ubicaciones duplicadas dentro de la misma entrada.');
+        }
+
+        $ubicaciones[$ubicacionClave] = true;
+        $lineasValidadas[] = [
+            'ubicacion' => $ubicacion,
+            'bultos' => $bultos,
+        ];
+        $sumaBultos += $bultos;
+    }
+
+    if ($lineasValidadas === []) {
+        throw new RuntimeException('Indica al menos una ubicacion con sus bultos.');
+    }
+
+    $totalTexto = trim((string) $totalBultos);
+    if ($totalTexto !== '') {
+        $totalValidado = filter_var($totalTexto, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+        if ($totalValidado === false) {
+            throw new RuntimeException('El total de bultos debe ser un entero mayor que cero.');
+        }
+
+        if ((int) $totalValidado !== $sumaBultos) {
+            throw new RuntimeException('La suma de bultos por ubicacion debe coincidir con el total de la entrada.');
+        }
+    }
+
+    return [
+        'lineas' => $lineasValidadas,
+        'total_bultos' => $sumaBultos,
+    ];
+}
+
+function crearEntradaInventarioPorUbicaciones(PDO $pdo, array $datosEntrada, array $lineasUbicacion): array
+{
+    $idInicial = filter_var($datosEntrada['id'] ?? null, FILTER_VALIDATE_INT, [
+        'options' => ['min_range' => 1],
+    ]);
+    if ($idInicial === false) {
+        throw new RuntimeException('El ID debe ser un numero entero mayor que cero.');
+    }
+
+    $editorial = trim((string) ($datosEntrada['editorial'] ?? ''));
+    $colegio = trim((string) ($datosEntrada['colegio'] ?? ''));
+    $codigoCentro = strtoupper(trim((string) ($datosEntrada['codigo_centro'] ?? '')));
+    $fechaEntradaTexto = trim((string) ($datosEntrada['fecha_entrada'] ?? ''));
+    $destino = strtoupper(trim((string) ($datosEntrada['destino'] ?? '')));
+    $orden = trim((string) ($datosEntrada['orden'] ?? ''));
+
+    if ($editorial === '' || $colegio === '' || $codigoCentro === '' || $fechaEntradaTexto === '') {
+        throw new RuntimeException('Completa todos los campos obligatorios de la entrada.');
+    }
+
+    $fechaEntrada = DateTimeImmutable::createFromFormat('Y-m-d', $fechaEntradaTexto);
+    $erroresFecha = DateTimeImmutable::getLastErrors();
+    if (!$fechaEntrada instanceof DateTimeImmutable || (($erroresFecha['warning_count'] ?? 0) > 0) || (($erroresFecha['error_count'] ?? 0) > 0)) {
+        throw new RuntimeException('La fecha de entrada no es valida.');
+    }
+
+    if ($lineasUbicacion === []) {
+        throw new RuntimeException('No hay ubicaciones validas para guardar.');
+    }
+
+    $ids = [];
+    foreach (array_values($lineasUbicacion) as $indice => $lineaUbicacion) {
+        $ids[] = $idInicial + $indice;
+    }
+
+    $placeholders = [];
+    $paramsIds = [];
+    foreach ($ids as $indice => $id) {
+        $placeholder = ':id_' . $indice;
+        $placeholders[] = $placeholder;
+        $paramsIds[$placeholder] = $id;
+    }
+
+    $pdo->beginTransaction();
+
+    try {
+        $stmtExistentes = $pdo->prepare(
+            'SELECT id
+             FROM inventario
+             WHERE id IN (' . implode(', ', $placeholders) . ')'
+        );
+        $stmtExistentes->execute($paramsIds);
+        $idsExistentes = array_map(
+            static fn(mixed $valor): int => (int) $valor,
+            $stmtExistentes->fetchAll(PDO::FETCH_COLUMN)
+        );
+
+        if ($idsExistentes !== []) {
+            sort($idsExistentes);
+            throw new RuntimeException(
+                count($idsExistentes) === 1
+                    ? 'El ID ' . (string) $idsExistentes[0] . ' ya existe en el inventario. Introduce otro valor inicial.'
+                    : 'Ya existen IDs en el rango solicitado: ' . implode(', ', array_map('strval', $idsExistentes)) . '.'
+            );
+        }
+
+        $stmtInsert = $pdo->prepare(
+            'INSERT INTO inventario (
+                id, editorial, colegio, codigo_centro, ubicacion, fecha_entrada, bultos, destino, `orden`, indicador_completa
+            ) VALUES (
+                :id, :editorial, :colegio, :codigo_centro, :ubicacion, :fecha_entrada, :bultos, :destino, :orden, :indicador_completa
+            )'
+        );
+
+        foreach (array_values($lineasUbicacion) as $indice => $lineaUbicacion) {
+            $ubicacion = normalizarUbicacionInventario($lineaUbicacion['ubicacion'] ?? '');
+            $indicadorCompleta = valorPersistenciaIndicadorCompleta(ubicacionActivaCompleta($pdo, $ubicacion));
+
+            $stmtInsert->bindValue(':id', $ids[$indice], PDO::PARAM_INT);
+            $stmtInsert->bindValue(':editorial', $editorial);
+            $stmtInsert->bindValue(':colegio', $colegio);
+            $stmtInsert->bindValue(':codigo_centro', $codigoCentro);
+            $stmtInsert->bindValue(':ubicacion', $ubicacion);
+            $stmtInsert->bindValue(':fecha_entrada', $fechaEntrada->format('Y-m-d'));
+            $stmtInsert->bindValue(':bultos', (int) ($lineaUbicacion['bultos'] ?? 0), PDO::PARAM_INT);
+            $stmtInsert->bindValue(':destino', $destino !== '' ? $destino : null, $destino !== '' ? PDO::PARAM_STR : PDO::PARAM_NULL);
+            $stmtInsert->bindValue(':orden', $orden !== '' ? $orden : null, $orden !== '' ? PDO::PARAM_STR : PDO::PARAM_NULL);
+            $stmtInsert->bindValue(':indicador_completa', $indicadorCompleta, $indicadorCompleta !== null ? PDO::PARAM_STR : PDO::PARAM_NULL);
+            $stmtInsert->execute();
+        }
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $e;
+    }
+
+    return [
+        'ids' => $ids,
+        'id_inicial' => $ids[0],
+        'id_final' => $ids[count($ids) - 1],
+        'total_lineas' => count($ids),
+    ];
+}
+
 function ubicacionActivaCompleta(PDO $pdo, string $ubicacion, ?int $inventarioIdExcluir = null): bool
 {
     $ubicacionNormalizada = normalizarUbicacionInventario($ubicacion);
