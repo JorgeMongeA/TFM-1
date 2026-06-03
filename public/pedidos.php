@@ -161,10 +161,15 @@ renderAppLayoutStart(
                             <p class="eyebrow mb-1">Mercancia disponible</p>
                             <p class="mb-0 text-body-secondary">Selecciona lineas activas del inventario para componer el pedido.</p>
                         </div>
-                        <div class="d-flex flex-wrap gap-2">
-                            <button class="btn btn-outline-secondary" type="button" id="seleccionar_todo_pedido">Seleccionar visibles</button>
-                            <button class="btn btn-outline-secondary" type="button" id="limpiar_seleccion_pedido">Limpiar seleccion</button>
-                            <button class="btn btn-primary" type="submit"<?= $inventarioDisponible === [] ? ' disabled' : '' ?>>Crear pedido</button>
+                        <div class="d-flex flex-column align-items-start align-items-lg-end gap-2">
+                            <div class="d-flex flex-wrap gap-2">
+                                <button class="btn btn-outline-secondary" type="button" id="seleccionar_todo_pedido">Seleccionar visibles</button>
+                                <button class="btn btn-outline-secondary" type="button" id="limpiar_seleccion_pedido">Limpiar seleccion</button>
+                                <button class="btn btn-primary" type="submit"<?= $inventarioDisponible === [] ? ' disabled' : '' ?>>Crear pedido</button>
+                            </div>
+                            <div class="border rounded-3 bg-light px-3 py-2 text-body-secondary fw-semibold" id="resumen_carga_pedido" role="status" aria-live="polite">
+                                Carga aproximada: 0 palets &middot; 0 bultos
+                            </div>
                         </div>
                     </div>
 
@@ -209,7 +214,7 @@ renderAppLayoutStart(
                                                     ? 'Ya incluida en pedido en curso ' . ($codigoPedidoComprometido !== '' ? $codigoPedidoComprometido . ' - ' : '') . $estadoComprometido
                                                     : '';
                                                 ?>
-                                                <input class="form-check-input pedido-checkbox" type="checkbox" name="seleccionados[]" value="<?= htmlspecialchars((string) $filaId, ENT_QUOTES, 'UTF-8') ?>"<?= is_array($lineaComprometida) ? ' disabled title="' . htmlspecialchars($detalleCompromiso, ENT_QUOTES, 'UTF-8') . '"' : '' ?>>
+                                                <input class="form-check-input pedido-checkbox" type="checkbox" name="seleccionados[]" value="<?= htmlspecialchars((string) $filaId, ENT_QUOTES, 'UTF-8') ?>" data-bultos="<?= htmlspecialchars((string) ($fila['bultos'] ?? 0), ENT_QUOTES, 'UTF-8') ?>" data-ubicacion="<?= htmlspecialchars(trim((string) ($fila['ubicacion'] ?? '')), ENT_QUOTES, 'UTF-8') ?>"<?= is_array($lineaComprometida) ? ' disabled title="' . htmlspecialchars($detalleCompromiso, ENT_QUOTES, 'UTF-8') . '"' : '' ?>>
                                                 <?php if (is_array($lineaComprometida)): ?>
                                                     <span class="badge badge-estado-pedido <?= htmlspecialchars(claseEstadoPedido((string) ($lineaComprometida['estado'] ?? '')), ENT_QUOTES, 'UTF-8') ?> ms-2"
                                                           title="<?= htmlspecialchars($detalleCompromiso, ENT_QUOTES, 'UTF-8') ?>">
@@ -360,12 +365,42 @@ const pedidosAutocompleteEndpoint = <?= json_encode(BASE_URL . '/pedidos_autocom
 const pedidoCheckboxes = Array.from(document.querySelectorAll('.pedido-checkbox:not(:disabled)'));
 const seleccionarTodoPedido = document.getElementById('seleccionar_todo_pedido');
 const limpiarSeleccionPedido = document.getElementById('limpiar_seleccion_pedido');
+const resumenCargaPedido = document.getElementById('resumen_carga_pedido');
+
+function actualizarResumenCargaPedido() {
+    if (!resumenCargaPedido) {
+        return;
+    }
+
+    let totalBultos = 0;
+    const ubicaciones = new Set();
+
+    pedidoCheckboxes.forEach((checkbox) => {
+        if (!checkbox.checked || checkbox.disabled) {
+            return;
+        }
+
+        totalBultos += Number.parseInt(checkbox.dataset.bultos || '0', 10) || 0;
+
+        const ubicacion = (checkbox.dataset.ubicacion || '').trim();
+        if (ubicacion !== '') {
+            ubicaciones.add(ubicacion);
+        }
+    });
+
+    const totalPalets = ubicaciones.size;
+    const paletsLabel = totalPalets === 1 ? 'palet' : 'palets';
+    const bultosLabel = totalBultos === 1 ? 'bulto' : 'bultos';
+
+    resumenCargaPedido.textContent = `Carga aproximada: ${totalPalets} ${paletsLabel} \u00b7 ${totalBultos} ${bultosLabel}`;
+}
 
 if (seleccionarTodoPedido) {
     seleccionarTodoPedido.addEventListener('click', () => {
         pedidoCheckboxes.forEach((checkbox) => {
             checkbox.checked = true;
         });
+        actualizarResumenCargaPedido();
     });
 }
 
@@ -374,8 +409,15 @@ if (limpiarSeleccionPedido) {
         pedidoCheckboxes.forEach((checkbox) => {
             checkbox.checked = false;
         });
+        actualizarResumenCargaPedido();
     });
 }
+
+pedidoCheckboxes.forEach((checkbox) => {
+    checkbox.addEventListener('change', actualizarResumenCargaPedido);
+});
+
+actualizarResumenCargaPedido();
 </script>
 <?php endif; ?>
 <?php renderAppLayoutEnd(); ?>

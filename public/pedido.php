@@ -341,9 +341,14 @@ renderAppLayoutStart(
                                         <p class="eyebrow mb-1">Inventario activo para anadir</p>
                                         <p class="mb-0 text-body-secondary">Las lineas ya comprometidas por otros pedidos no se pueden anadir.</p>
                                     </div>
-                                    <div class="d-flex flex-wrap gap-2">
-                                        <button class="btn btn-outline-secondary" type="button" id="seleccionarTodoAgregar">Seleccionar visibles</button>
-                                        <button class="btn btn-outline-secondary" type="button" id="limpiarAgregar">Limpiar seleccion</button>
+                                    <div class="d-flex flex-column align-items-start align-items-lg-end gap-2">
+                                        <div class="d-flex flex-wrap gap-2">
+                                            <button class="btn btn-outline-secondary" type="button" id="seleccionarTodoAgregar">Seleccionar visibles</button>
+                                            <button class="btn btn-outline-secondary" type="button" id="limpiarAgregar">Limpiar seleccion</button>
+                                        </div>
+                                        <div class="border rounded-3 bg-light px-3 py-2 text-body-secondary fw-semibold" id="resumenCargaAgregar" role="status" aria-live="polite">
+                                            Carga aproximada: 0 palets &middot; 0 bultos
+                                        </div>
                                     </div>
                                 </div>
 
@@ -384,7 +389,7 @@ renderAppLayoutStart(
                                                     ?>
                                                     <tr>
                                                         <td>
-                                                            <input class="form-check-input agregar-linea-checkbox" type="checkbox" name="agregar_ids[]" value="<?= htmlspecialchars((string) $filaId, ENT_QUOTES, 'UTF-8') ?>"<?= $bloqueada ? ' disabled' : '' ?>>
+                                                            <input class="form-check-input agregar-linea-checkbox" type="checkbox" name="agregar_ids[]" value="<?= htmlspecialchars((string) $filaId, ENT_QUOTES, 'UTF-8') ?>" data-bultos="<?= htmlspecialchars((string) ($filaDisponible['bultos'] ?? 0), ENT_QUOTES, 'UTF-8') ?>" data-ubicacion="<?= htmlspecialchars(trim((string) ($filaDisponible['ubicacion'] ?? '')), ENT_QUOTES, 'UTF-8') ?>"<?= $bloqueada ? ' disabled' : '' ?>>
                                                             <?php if ($estaYaEnPedido): ?>
                                                                 <span class="badge text-bg-success ms-2">Actual</span>
                                                             <?php elseif (is_array($lineaComprometida)): ?>
@@ -527,12 +532,42 @@ const inventarioAutocompleteEndpoint = <?= json_encode(BASE_URL . '/inventario_a
 const agregarCheckboxes = Array.from(document.querySelectorAll('.agregar-linea-checkbox:not(:disabled)'));
 const seleccionarTodoAgregar = document.getElementById('seleccionarTodoAgregar');
 const limpiarAgregar = document.getElementById('limpiarAgregar');
+const resumenCargaAgregar = document.getElementById('resumenCargaAgregar');
+
+function actualizarResumenCargaAgregar() {
+    if (!resumenCargaAgregar) {
+        return;
+    }
+
+    let totalBultos = 0;
+    const ubicaciones = new Set();
+
+    agregarCheckboxes.forEach((checkbox) => {
+        if (!checkbox.checked || checkbox.disabled) {
+            return;
+        }
+
+        totalBultos += Number.parseInt(checkbox.dataset.bultos || '0', 10) || 0;
+
+        const ubicacion = (checkbox.dataset.ubicacion || '').trim();
+        if (ubicacion !== '') {
+            ubicaciones.add(ubicacion);
+        }
+    });
+
+    const totalPalets = ubicaciones.size;
+    const paletsLabel = totalPalets === 1 ? 'palet' : 'palets';
+    const bultosLabel = totalBultos === 1 ? 'bulto' : 'bultos';
+
+    resumenCargaAgregar.textContent = `Carga aproximada: ${totalPalets} ${paletsLabel} \u00b7 ${totalBultos} ${bultosLabel}`;
+}
 
 if (seleccionarTodoAgregar) {
     seleccionarTodoAgregar.addEventListener('click', () => {
         agregarCheckboxes.forEach((checkbox) => {
             checkbox.checked = true;
         });
+        actualizarResumenCargaAgregar();
     });
 }
 
@@ -541,8 +576,15 @@ if (limpiarAgregar) {
         agregarCheckboxes.forEach((checkbox) => {
             checkbox.checked = false;
         });
+        actualizarResumenCargaAgregar();
     });
 }
+
+agregarCheckboxes.forEach((checkbox) => {
+    checkbox.addEventListener('change', actualizarResumenCargaAgregar);
+});
+
+actualizarResumenCargaAgregar();
 </script>
 <?php endif; ?>
 <?php renderAppLayoutEnd(); ?>
