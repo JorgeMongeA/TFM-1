@@ -8,6 +8,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/paginacion.php';
+
 const CENTRO_DESCONOCIDO_CODIGO = '000000';
 const CENTRO_DESCONOCIDO_NOMBRE = 'DESCONOCIDO';
 const CENTROS_GOOGLE_SHEETS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbzGdKiAIX3CcsJnSRRcqLwmCqK5T7-7AYXnegfnByEwMfLFFs0Ane0U4044L81LzHO9iw/exec';
@@ -38,6 +40,21 @@ function filtrosCentrosPermitidos(): array
     return ['codigo_centro', 'nombre_centro', 'ciudad', 'congregacion', 'destino'];
 }
 
+function columnasCentrosOrdenables(): array
+{
+    return [
+        'codigo_centro' => 'codigo_centro',
+        'nombre_centro' => 'nombre_centro',
+        'ciudad' => 'ciudad',
+        'codigo_congregacion' => 'codigo_congregacion',
+        'congregacion' => 'congregacion',
+        'entrada' => 'entrada',
+        'almacen' => 'almacen',
+        'destino' => 'destino',
+        'actualizado_en' => 'actualizado_en',
+    ];
+}
+
 function leerFiltrosCentrosDesdeRequest(array $source): array
 {
     $filtros = [];
@@ -49,9 +66,25 @@ function leerFiltrosCentrosDesdeRequest(array $source): array
     return $filtros;
 }
 
-function cargarCentros(PDO $pdo, array $filtros = []): array
+function leerOrdenCentrosDesdeRequest(array $source, string $ordenDefault = 'codigo_centro'): array
 {
-    $sql = 'SELECT codigo_centro, nombre_centro, ciudad, codigo_congregacion, congregacion, entrada, almacen, destino, actualizado_en FROM centros';
+    $columnas = array_keys(columnasCentrosOrdenables());
+    $ordenar = trim((string) ($source['ordenar'] ?? $ordenDefault));
+    if (!in_array($ordenar, $columnas, true)) {
+        $ordenar = $ordenDefault;
+    }
+
+    $direccion = strtoupper(trim((string) ($source['direccion'] ?? 'ASC')));
+    if (!in_array($direccion, ['ASC', 'DESC'], true)) {
+        $direccion = 'ASC';
+    }
+
+    return [$ordenar, $direccion];
+}
+
+function cargarCentros(PDO $pdo, array $filtros = [], string $ordenar = 'codigo_centro', string $direccion = 'ASC', ?array $paginacion = null): array
+{
+    $sqlBase = ' FROM centros';
     $where = [];
     $params = [];
 
@@ -65,12 +98,47 @@ function cargarCentros(PDO $pdo, array $filtros = []): array
     }
 
     if ($where !== []) {
-        $sql .= ' WHERE ' . implode(' AND ', $where);
+        $sqlBase .= ' WHERE ' . implode(' AND ', $where);
     }
 
-    $sql .= ' ORDER BY codigo_centro ASC';
+    $columnasOrdenables = columnasCentrosOrdenables();
+    $ordenSql = $columnasOrdenables[$ordenar] ?? $columnasOrdenables['codigo_centro'];
+    $direccionSql = in_array($direccion, ['ASC', 'DESC'], true) ? $direccion : 'ASC';
+    $sqlOrden = ' ORDER BY ' . $ordenSql . ' ' . $direccionSql;
 
-    $stmt = $pdo->prepare($sql);
+    if ($paginacion !== null) {
+        $stmtTotal = $pdo->prepare('SELECT COUNT(*)' . $sqlBase);
+        $stmtTotal->execute($params);
+        $paginacionNormalizada = construirPaginacion(
+            (int) $stmtTotal->fetchColumn(),
+            (int) ($paginacion['page'] ?? 1),
+            (int) ($paginacion['per_page'] ?? PAGINACION_POR_PAGINA_POR_DEFECTO)
+        );
+
+        $stmt = $pdo->prepare(
+            'SELECT codigo_centro, nombre_centro, ciudad, codigo_congregacion, congregacion, entrada, almacen, destino, actualizado_en'
+            . $sqlBase
+            . $sqlOrden
+            . ' LIMIT :limite OFFSET :offset'
+        );
+        foreach ($params as $param => $valor) {
+            $stmt->bindValue($param, $valor);
+        }
+        $stmt->bindValue(':limite', (int) $paginacionNormalizada['per_page'], PDO::PARAM_INT);
+        $stmt->bindValue(':offset', (int) $paginacionNormalizada['offset'], PDO::PARAM_INT);
+        $stmt->execute();
+
+        return [
+            'registros' => $stmt->fetchAll(),
+            'paginacion' => $paginacionNormalizada,
+        ];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT codigo_centro, nombre_centro, ciudad, codigo_congregacion, congregacion, entrada, almacen, destino, actualizado_en'
+        . $sqlBase
+        . $sqlOrden
+    );
     $stmt->execute($params);
 
     return $stmt->fetchAll();

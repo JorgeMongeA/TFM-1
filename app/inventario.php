@@ -9,6 +9,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/actividad.php';
+require_once __DIR__ . '/paginacion.php';
 
 const INVENTARIO_ESTADO_ACTIVO = 'activo';
 const INVENTARIO_ESTADO_HISTORICO = 'historico';
@@ -196,12 +197,12 @@ function leerOrdenInventarioDesdeRequest(
     return [$ordenar, $direccion];
 }
 
-function consultarInventario(PDO $pdo, array $filtros, string $ordenar, string $direccion): array
+function consultarInventario(PDO $pdo, array $filtros, string $ordenar, string $direccion, ?array $paginacion = null): array
 {
     $ordenarPermitido = in_array($ordenar, columnasInventarioConsultaOrdenables(), true) ? $ordenar : 'fecha_entrada';
     $direccionPermitida = in_array($direccion, ['ASC', 'DESC'], true) ? $direccion : 'ASC';
 
-    return consultarInventarioActivoConCentros($pdo, $filtros, $ordenarPermitido, $direccionPermitida);
+    return consultarInventarioActivoConCentros($pdo, $filtros, $ordenarPermitido, $direccionPermitida, $paginacion);
 }
 
 function buscarValoresInventarioActivoAutocomplete(PDO $pdo, string $campo, string $texto, int $limite = 10): array
@@ -248,19 +249,23 @@ function buscarValoresInventarioActivoAutocomplete(PDO $pdo, string $campo, stri
     return $stmt->fetchAll();
 }
 
-function consultarHistorico(PDO $pdo, array $filtros, string $ordenar, string $direccion): array
+function consultarHistorico(PDO $pdo, array $filtros, string $ordenar, string $direccion, ?array $paginacion = null): array
 {
-    return consultarInventarioPorEstado($pdo, INVENTARIO_ESTADO_HISTORICO, $filtros, $ordenar, $direccion);
+    return consultarInventarioPorEstado($pdo, INVENTARIO_ESTADO_HISTORICO, $filtros, $ordenar, $direccion, $paginacion);
 }
 
-function consultarInventarioPorEstado(PDO $pdo, string $estado, array $filtros, string $ordenar, string $direccion): array
+function consultarInventarioPorEstado(PDO $pdo, string $estado, array $filtros, string $ordenar, string $direccion, ?array $paginacion = null): array
 {
     $estado = normalizarEstadoInventario($estado);
-    $sql = 'SELECT id, editorial, colegio, codigo_centro, ubicacion, fecha_entrada, fecha_salida, bultos, destino, `orden`, indicador_completa, estado, fecha_confirmacion_salida, usuario_confirmacion, numero_albaran, sync_pendiente_historico, fecha_sync_historico
-            FROM inventario
-            WHERE estado = :estado';
+    $columnas = 'id, editorial, colegio, codigo_centro, ubicacion, fecha_entrada, fecha_salida, bultos, destino, `orden`, indicador_completa, estado, fecha_confirmacion_salida, usuario_confirmacion, numero_albaran, sync_pendiente_historico, fecha_sync_historico';
+    $sqlBase = ' FROM inventario
+                 WHERE estado = :estado';
     $params = [':estado' => $estado];
     $camposFiltro = $estado === INVENTARIO_ESTADO_HISTORICO ? filtrosHistoricoPermitidos() : filtrosInventarioPermitidos();
+    $ordenables = $estado === INVENTARIO_ESTADO_HISTORICO ? columnasHistoricoOrdenables() : columnasInventarioOrdenables();
+    $ordenDefault = $estado === INVENTARIO_ESTADO_HISTORICO ? 'fecha_confirmacion_salida' : 'fecha_entrada';
+    $ordenarPermitido = in_array($ordenar, $ordenables, true) ? $ordenar : $ordenDefault;
+    $direccionPermitida = in_array($direccion, ['ASC', 'DESC'], true) ? $direccion : 'ASC';
 
     foreach ($camposFiltro as $campo) {
         $valor = trim((string) ($filtros[$campo] ?? ''));
@@ -269,19 +274,42 @@ function consultarInventarioPorEstado(PDO $pdo, string $estado, array $filtros, 
             continue;
         }
 
-        $sql .= ' AND ' . $campo . ' LIKE :' . $campo;
+        $sqlBase .= ' AND ' . $campo . ' LIKE :' . $campo;
         $params[':' . $campo] = '%' . $valor . '%';
     }
 
-    $sql .= " ORDER BY `{$ordenar}` {$direccion}";
+    $sqlOrden = " ORDER BY `{$ordenarPermitido}` {$direccionPermitida}";
 
-    $stmt = $pdo->prepare($sql);
+    if ($paginacion !== null) {
+        $stmtTotal = $pdo->prepare('SELECT COUNT(*)' . $sqlBase);
+        $stmtTotal->execute($params);
+        $paginacionNormalizada = construirPaginacion(
+            (int) $stmtTotal->fetchColumn(),
+            (int) ($paginacion['page'] ?? 1),
+            (int) ($paginacion['per_page'] ?? PAGINACION_POR_PAGINA_POR_DEFECTO)
+        );
+
+        $stmt = $pdo->prepare('SELECT ' . $columnas . $sqlBase . $sqlOrden . ' LIMIT :limite OFFSET :offset');
+        foreach ($params as $param => $valor) {
+            $stmt->bindValue($param, $valor);
+        }
+        $stmt->bindValue(':limite', (int) $paginacionNormalizada['per_page'], PDO::PARAM_INT);
+        $stmt->bindValue(':offset', (int) $paginacionNormalizada['offset'], PDO::PARAM_INT);
+        $stmt->execute();
+
+        return [
+            'registros' => $stmt->fetchAll(),
+            'paginacion' => $paginacionNormalizada,
+        ];
+    }
+
+    $stmt = $pdo->prepare('SELECT ' . $columnas . $sqlBase . $sqlOrden);
     $stmt->execute($params);
 
     return $stmt->fetchAll();
 }
 
-function consultarInventarioActivoConCentros(PDO $pdo, array $filtros, string $ordenar, string $direccion): array
+function consultarInventarioActivoConCentros(PDO $pdo, array $filtros, string $ordenar, string $direccion, ?array $paginacion = null): array
 {
     $ordenesPermitidos = [
         'id' => 'i.id',
@@ -298,50 +326,50 @@ function consultarInventarioActivoConCentros(PDO $pdo, array $filtros, string $o
         'indicador_completa' => 'COALESCE(uc.ubicacion_completa_estado, 0)',
     ];
 
-    $sql = 'SELECT i.id,
-                   i.editorial,
-                   i.colegio,
-                   i.codigo_centro,
-                   COALESCE(c.congregacion, \'\') AS congregacion_nombre,
-                   i.ubicacion,
-                   i.fecha_entrada,
-                   i.fecha_salida,
-                   i.bultos,
-                   i.destino,
-                   i.`orden`,
-                   i.indicador_completa,
-                   COALESCE(uc.ubicacion_completa_estado, 0) AS ubicacion_completa_estado,
-                   i.estado,
-                   i.fecha_confirmacion_salida,
-                   i.usuario_confirmacion,
-                   i.numero_albaran,
-                   i.sync_pendiente_historico,
-                   i.fecha_sync_historico
-            FROM inventario i
-            LEFT JOIN (
-                SELECT codigo_centro, MAX(congregacion) AS congregacion
-                FROM centros
-                GROUP BY codigo_centro
-            ) c
-                ON c.codigo_centro = i.codigo_centro
-            LEFT JOIN (
-                SELECT TRIM(ubicacion) AS ubicacion_clave,
-                       MAX(
-                           CASE
-                               WHEN indicador_completa IS NOT NULL
-                                    AND TRIM(indicador_completa) <> \'\'
-                                    AND TRIM(indicador_completa) <> \'0\'
-                               THEN 1
-                               ELSE 0
-                           END
-                       ) AS ubicacion_completa_estado
-                FROM inventario
-                WHERE estado = :estado_ubicacion
-                  AND TRIM(ubicacion) <> \'\'
-                GROUP BY TRIM(ubicacion)
-            ) uc
-                ON uc.ubicacion_clave = TRIM(i.ubicacion)
-            WHERE i.estado = :estado';
+    $columnas = 'i.id,
+                 i.editorial,
+                 i.colegio,
+                 i.codigo_centro,
+                 COALESCE(c.congregacion, \'\') AS congregacion_nombre,
+                 i.ubicacion,
+                 i.fecha_entrada,
+                 i.fecha_salida,
+                 i.bultos,
+                 i.destino,
+                 i.`orden`,
+                 i.indicador_completa,
+                 COALESCE(uc.ubicacion_completa_estado, 0) AS ubicacion_completa_estado,
+                 i.estado,
+                 i.fecha_confirmacion_salida,
+                 i.usuario_confirmacion,
+                 i.numero_albaran,
+                 i.sync_pendiente_historico,
+                 i.fecha_sync_historico';
+    $sqlBase = ' FROM inventario i
+                 LEFT JOIN (
+                     SELECT codigo_centro, MAX(congregacion) AS congregacion
+                     FROM centros
+                     GROUP BY codigo_centro
+                 ) c
+                     ON c.codigo_centro = i.codigo_centro
+                 LEFT JOIN (
+                     SELECT TRIM(ubicacion) AS ubicacion_clave,
+                            MAX(
+                                CASE
+                                    WHEN indicador_completa IS NOT NULL
+                                         AND TRIM(indicador_completa) <> \'\'
+                                         AND TRIM(indicador_completa) <> \'0\'
+                                    THEN 1
+                                    ELSE 0
+                                END
+                            ) AS ubicacion_completa_estado
+                     FROM inventario
+                     WHERE estado = :estado_ubicacion
+                       AND TRIM(ubicacion) <> \'\'
+                     GROUP BY TRIM(ubicacion)
+                 ) uc
+                     ON uc.ubicacion_clave = TRIM(i.ubicacion)
+                 WHERE i.estado = :estado';
     $params = [
         ':estado' => INVENTARIO_ESTADO_ACTIVO,
         ':estado_ubicacion' => INVENTARIO_ESTADO_ACTIVO,
@@ -350,6 +378,67 @@ function consultarInventarioActivoConCentros(PDO $pdo, array $filtros, string $o
     foreach (filtrosInventarioPermitidos() as $campo) {
         $valor = trim((string) ($filtros[$campo] ?? ''));
 
+        if ($valor === '') {
+            continue;
+        }
+
+        if ($campo === 'congregacion') {
+            $sqlBase .= ' AND COALESCE(c.congregacion, \'\') LIKE :congregacion';
+            $params[':congregacion'] = '%' . $valor . '%';
+            continue;
+        }
+
+        $sqlBase .= ' AND i.' . $campo . ' LIKE :' . $campo;
+        $params[':' . $campo] = '%' . $valor . '%';
+    }
+
+    $ordenSql = $ordenesPermitidos[$ordenar] ?? $ordenesPermitidos['fecha_entrada'];
+    $sqlOrden = ' ORDER BY ' . $ordenSql . ' ' . $direccion;
+
+    if ($paginacion !== null) {
+        $stmtTotal = $pdo->prepare('SELECT COUNT(*)' . $sqlBase);
+        $stmtTotal->execute($params);
+        $paginacionNormalizada = construirPaginacion(
+            (int) $stmtTotal->fetchColumn(),
+            (int) ($paginacion['page'] ?? 1),
+            (int) ($paginacion['per_page'] ?? PAGINACION_POR_PAGINA_POR_DEFECTO)
+        );
+
+        $stmt = $pdo->prepare('SELECT ' . $columnas . $sqlBase . $sqlOrden . ' LIMIT :limite OFFSET :offset');
+        foreach ($params as $param => $valor) {
+            $stmt->bindValue($param, $valor);
+        }
+        $stmt->bindValue(':limite', (int) $paginacionNormalizada['per_page'], PDO::PARAM_INT);
+        $stmt->bindValue(':offset', (int) $paginacionNormalizada['offset'], PDO::PARAM_INT);
+        $stmt->execute();
+
+        return [
+            'registros' => $stmt->fetchAll(),
+            'paginacion' => $paginacionNormalizada,
+        ];
+    }
+
+    $stmt = $pdo->prepare('SELECT ' . $columnas . $sqlBase . $sqlOrden);
+    $stmt->execute($params);
+
+    return $stmt->fetchAll();
+}
+
+function obtenerTotalBultosInventario(PDO $pdo, array $filtros = []): int
+{
+    $sql = 'SELECT COALESCE(SUM(i.bultos), 0)
+            FROM inventario i
+            LEFT JOIN (
+                SELECT codigo_centro, MAX(congregacion) AS congregacion
+                FROM centros
+                GROUP BY codigo_centro
+            ) c
+                ON c.codigo_centro = i.codigo_centro
+            WHERE i.estado = :estado';
+    $params = [':estado' => INVENTARIO_ESTADO_ACTIVO];
+
+    foreach (filtrosInventarioPermitidos() as $campo) {
+        $valor = trim((string) ($filtros[$campo] ?? ''));
         if ($valor === '') {
             continue;
         }
@@ -364,13 +453,79 @@ function consultarInventarioActivoConCentros(PDO $pdo, array $filtros, string $o
         $params[':' . $campo] = '%' . $valor . '%';
     }
 
-    $ordenSql = $ordenesPermitidos[$ordenar] ?? $ordenesPermitidos['fecha_entrada'];
-    $sql .= ' ORDER BY ' . $ordenSql . ' ' . $direccion;
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
+    return (int) $stmt->fetchColumn();
+}
+
+function obtenerUbicacionSugeridaEntrada(PDO $pdo, string $codigoCentro, string $colegio = ''): ?array
+{
+    $codigoCentro = strtoupper(trim($codigoCentro));
+    $colegio = trim($colegio);
+
+    if ($codigoCentro === '') {
+        return null;
+    }
+
+    $fila = buscarUbicacionSugeridaEntrada($pdo, $codigoCentro, $colegio);
+    if (!is_array($fila) && $colegio !== '') {
+        $fila = buscarUbicacionSugeridaEntrada($pdo, $codigoCentro);
+    }
+
+    if (!is_array($fila)) {
+        return null;
+    }
+
+    $ubicacion = trim((string) ($fila['ubicacion'] ?? ''));
+    if ($ubicacion === '') {
+        return null;
+    }
+
+    return [
+        'ubicacion' => $ubicacion,
+        'total_lineas' => (int) ($fila['total_lineas'] ?? 0),
+        'total_bultos' => (int) ($fila['total_bultos'] ?? 0),
+    ];
+}
+
+function buscarUbicacionSugeridaEntrada(PDO $pdo, string $codigoCentro, string $colegio = ''): array|false
+{
+    $sql = 'SELECT TRIM(ubicacion) AS ubicacion,
+                   COUNT(*) AS total_lineas,
+                   COALESCE(SUM(bultos), 0) AS total_bultos
+            FROM inventario
+            WHERE estado = :estado
+              AND codigo_centro = :codigo_centro
+              AND TRIM(ubicacion) <> \'\'';
+    $params = [
+        ':estado' => INVENTARIO_ESTADO_ACTIVO,
+        ':codigo_centro' => $codigoCentro,
+    ];
+
+    if ($colegio !== '') {
+        $sql .= ' AND colegio = :colegio';
+        $params[':colegio'] = $colegio;
+    }
+
+    $sql .= '
+            GROUP BY TRIM(ubicacion)
+            HAVING MAX(
+                CASE
+                    WHEN indicador_completa IS NOT NULL
+                         AND TRIM(indicador_completa) <> \'\'
+                         AND TRIM(indicador_completa) <> \'0\'
+                    THEN 1
+                    ELSE 0
+                END
+            ) = 0
+            ORDER BY total_bultos DESC, total_lineas DESC, ubicacion ASC
+            LIMIT 1';
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
 
-    return $stmt->fetchAll();
+    return $stmt->fetch();
 }
 
 function actualizarIndicadorCompletaPorUbicacion(PDO $pdo, string $ubicacion, bool $completa): int

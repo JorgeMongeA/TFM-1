@@ -419,6 +419,11 @@ select:focus {
     overflow: hidden;
 }
 
+.custom-table-wrap.scroll-horizontal-visible {
+    overflow-x: auto;
+    overflow-y: visible;
+}
+
 .data-table {
     min-width: 980px;
     margin: 0;
@@ -489,6 +494,65 @@ select:focus {
 
 .scroll-horizontal-visible::-webkit-scrollbar-thumb:hover {
     background: #4b5563;
+}
+
+.table-pagination {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px 18px;
+    margin-top: 16px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--surface);
+}
+
+.table-pagination-summary {
+    color: #304860;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.table-pagination-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px 16px;
+}
+
+.table-pagination-form {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+}
+
+.table-pagination-label {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-soft);
+}
+
+.table-pagination-select {
+    min-width: 84px;
+}
+
+.table-pagination-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.table-pagination-page {
+    color: #304860;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 0 6px;
 }
 
 .inventario-scroll-box {
@@ -869,6 +933,15 @@ select:focus {
         height: 44px;
         border-radius: 14px;
         font-size: 16px;
+    }
+
+    .table-pagination,
+    .table-pagination-controls {
+        align-items: stretch;
+    }
+
+    .table-pagination-controls {
+        justify-content: flex-start;
     }
 }
 

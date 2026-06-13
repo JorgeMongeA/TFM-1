@@ -25,10 +25,12 @@ $filtros = [
     'rol_id' => (int) ($_GET['rol_id'] ?? 0),
     'q' => trim((string) ($_GET['q'] ?? '')),
 ];
+$paginacion = leerPaginacionDesdeRequest($_GET);
 $returnQueryActual = (string) ($_SERVER['QUERY_STRING'] ?? '');
 $puedeCambiarPasswordGestion = puedeGestionarUsuarios();
 $puedeEliminarUsuariosGestion = puedeGestionarUsuarios();
 $usuarios = [];
+$paginacionVista = null;
 $roles = [];
 $error = '';
 $mensaje = '';
@@ -91,7 +93,9 @@ try {
         exit;
     }
 
-    $usuarios = listarUsuariosGestion($pdo, $filtros);
+    $resultadoConsulta = listarUsuariosGestion($pdo, $filtros, $paginacion);
+    $usuarios = is_array($resultadoConsulta['registros'] ?? null) ? $resultadoConsulta['registros'] : [];
+    $paginacionVista = is_array($resultadoConsulta['paginacion'] ?? null) ? $resultadoConsulta['paginacion'] : null;
 } catch (Throwable $e) {
     error_log('[USUARIOS] Error cargando la gestión de usuarios: ' . $e->getMessage());
     $error = 'No se ha podido cargar la gestión de usuarios en este momento.';
@@ -147,6 +151,7 @@ renderAppLayoutStart(
                         </select>
                     </div>
                     <div class="col-12 col-md-2 d-flex gap-2">
+                        <input type="hidden" name="per_page" value="<?= htmlspecialchars((string) ($paginacionVista['per_page'] ?? $paginacion['per_page']), ENT_QUOTES, 'UTF-8') ?>">
                         <button class="btn btn-primary mt-0" type="submit">Filtrar</button>
                         <a class="btn btn-outline-secondary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/usuarios.php">Limpiar</a>
                     </div>
@@ -161,7 +166,7 @@ renderAppLayoutStart(
             <?php if ($usuarios === []): ?>
                 <div class="alert alert-light border mb-0">No hay usuarios que coincidan con los filtros actuales.</div>
             <?php else: ?>
-                <div class="table-responsive custom-table-wrap">
+                <div class="table-responsive custom-table-wrap scroll-horizontal-visible">
                     <table class="table table-hover align-middle mb-0 data-table">
                         <thead>
                             <tr>
@@ -264,6 +269,11 @@ renderAppLayoutStart(
                         </tbody>
                     </table>
                 </div>
+                <?php renderPaginacionListado(
+                    BASE_URL . '/usuarios.php',
+                    $paginacionVista ?? construirPaginacion(count($usuarios), 1, $paginacion['per_page']),
+                    array_merge($filtros, ['per_page' => (int) ($paginacionVista['per_page'] ?? $paginacion['per_page'])])
+                ); ?>
             <?php endif; ?>
         </div>
     </div>

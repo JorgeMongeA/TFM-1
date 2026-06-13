@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/actividad.php';
 require_once __DIR__ . '/notificaciones.php';
+require_once __DIR__ . '/paginacion.php';
 
 const USUARIO_ESTADO_PENDIENTE = 'pendiente';
 const USUARIO_ESTADO_ACTIVO = 'activo';
@@ -301,7 +302,7 @@ function contarUsuariosPendientes(PDO $pdo): int
     return (int) $stmt->fetchColumn();
 }
 
-function listarUsuariosGestion(PDO $pdo, array $filtros = []): array
+function listarUsuariosGestion(PDO $pdo, array $filtros = [], ?array $paginacion = null): array
 {
     if (!usuariosSoportanGestion($pdo)) {
         throw new RuntimeException('La gestion avanzada de usuarios no esta disponible hasta aplicar la migracion de base de datos.');
@@ -323,31 +324,30 @@ function listarUsuariosGestion(PDO $pdo, array $filtros = []): array
         usuariosTieneColumna($pdo, 'actualizado_en') ? 'u.actualizado_en' : 'NULL AS actualizado_en',
     ];
 
-    $sql = 'SELECT ' . implode(', ', $select) . '
-            FROM usuarios u
-            LEFT JOIN roles r ON r.id = u.rol_id';
+    $sqlBase = ' FROM usuarios u
+                 LEFT JOIN roles r ON r.id = u.rol_id';
     if (usuariosTieneColumna($pdo, 'aprobado_por_id')) {
-        $sql .= '
-            LEFT JOIN usuarios ua ON ua.id = u.aprobado_por_id';
+        $sqlBase .= '
+                 LEFT JOIN usuarios ua ON ua.id = u.aprobado_por_id';
     }
-    $sql .= '
-            WHERE 1 = 1';
+    $sqlBase .= '
+                 WHERE 1 = 1';
     $params = [];
 
     $estado = trim((string) ($filtros['estado'] ?? ''));
     if ($estado !== '') {
         switch ($estado) {
             case USUARIO_ESTADO_PENDIENTE:
-                $sql .= ' AND ' . condicionesPendienteSql($pdo, 'u');
+                $sqlBase .= ' AND ' . condicionesPendienteSql($pdo, 'u');
                 break;
             case USUARIO_ESTADO_ACTIVO:
-                $sql .= ' AND u.aprobado = 1 AND u.activo = 1';
+                $sqlBase .= ' AND u.aprobado = 1 AND u.activo = 1';
                 break;
             case USUARIO_ESTADO_DESACTIVADO:
-                $sql .= ' AND u.aprobado = 1 AND u.activo = 0';
+                $sqlBase .= ' AND u.aprobado = 1 AND u.activo = 0';
                 break;
             case USUARIO_ESTADO_RECHAZADO:
-                $sql .= usuariosTieneColumna($pdo, 'rechazado')
+                $sqlBase .= usuariosTieneColumna($pdo, 'rechazado')
                     ? ' AND u.rechazado = 1'
                     : ' AND 1 = 0';
                 break;
@@ -370,24 +370,48 @@ function listarUsuariosGestion(PDO $pdo, array $filtros = []): array
             $params[$placeholder] = $rolCompatibleId;
         }
 
-        $sql .= ' AND u.rol_id IN (' . implode(', ', $placeholdersRol) . ')';
+        $sqlBase .= ' AND u.rol_id IN (' . implode(', ', $placeholdersRol) . ')';
     }
 
     $texto = trim((string) ($filtros['q'] ?? ''));
     if ($texto !== '') {
-        $sql .= ' AND (u.username LIKE :q OR u.email LIKE :q)';
+        $sqlBase .= ' AND (u.username LIKE :q OR u.email LIKE :q)';
         $params[':q'] = '%' . $texto . '%';
     }
 
-    $sql .= ' ORDER BY u.aprobado ASC';
+    $sqlOrden = ' ORDER BY u.aprobado ASC';
     if (usuariosTieneColumna($pdo, 'creado_en')) {
-        $sql .= ', u.creado_en DESC';
+        $sqlOrden .= ', u.creado_en DESC';
     }
-    $sql .= ', u.id DESC';
+    $sqlOrden .= ', u.id DESC';
 
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    $usuarios = $stmt->fetchAll();
+    if ($paginacion !== null) {
+        $stmtTotal = $pdo->prepare('SELECT COUNT(*)' . $sqlBase);
+        $stmtTotal->execute($params);
+        $paginacionNormalizada = construirPaginacion(
+            (int) $stmtTotal->fetchColumn(),
+            (int) ($paginacion['page'] ?? 1),
+            (int) ($paginacion['per_page'] ?? PAGINACION_POR_PAGINA_POR_DEFECTO)
+        );
+
+        $stmt = $pdo->prepare(
+            'SELECT ' . implode(', ', $select)
+            . $sqlBase
+            . $sqlOrden
+            . ' LIMIT :limite OFFSET :offset'
+        );
+        foreach ($params as $param => $valor) {
+            $stmt->bindValue($param, $valor);
+        }
+        $stmt->bindValue(':limite', (int) $paginacionNormalizada['per_page'], PDO::PARAM_INT);
+        $stmt->bindValue(':offset', (int) $paginacionNormalizada['offset'], PDO::PARAM_INT);
+        $stmt->execute();
+        $usuarios = $stmt->fetchAll();
+    } else {
+        $stmt = $pdo->prepare('SELECT ' . implode(', ', $select) . $sqlBase . $sqlOrden);
+        $stmt->execute($params);
+        $usuarios = $stmt->fetchAll();
+    }
 
     $rolesCanonicos = rolesAsignablesPorNombre($pdo);
 
@@ -399,6 +423,13 @@ function listarUsuariosGestion(PDO $pdo, array $filtros = []): array
         $usuario['rol_id_asignable'] = (int) ($rolesCanonicos[$rolCanonico]['id'] ?? ($usuario['rol_id'] ?? 0));
     }
     unset($usuario);
+
+    if ($paginacion !== null) {
+        return [
+            'registros' => $usuarios,
+            'paginacion' => $paginacionNormalizada,
+        ];
+    }
 
     return $usuarios;
 }

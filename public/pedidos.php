@@ -21,9 +21,11 @@ $usuarioPedido = obtenerUsuarioPedidoActual();
 $filtrosInventario = leerFiltrosInventarioDesdeRequest($_GET);
 [$ordenarInventario, $direccionInventario] = leerOrdenInventarioDesdeRequest($_GET);
 $filtrosPedidos = leerFiltrosListadoPedidosDesdeRequest($_GET);
+$paginacionPedidos = leerPaginacionDesdeRequest($_GET);
 $inventarioDisponible = [];
 $lineasComprometidas = [];
 $pedidos = [];
+$paginacionPedidosVista = null;
 $error = '';
 $mensaje = '';
 $flashPedido = $_SESSION['flash_pedido'] ?? null;
@@ -89,9 +91,13 @@ try {
             $inventarioDisponible
         );
         $lineasComprometidas = obtenerLineasComprometidasPorInventarioIds($pdo, $inventarioIdsDisponibles);
-        $pedidos = consultarPedidos($pdo, $filtrosPedidos, (int) ($usuarioPedido['user_id'] ?? 0));
+        $resultadoPedidos = consultarPedidos($pdo, $filtrosPedidos, (int) ($usuarioPedido['user_id'] ?? 0), $paginacionPedidos);
+        $pedidos = is_array($resultadoPedidos['registros'] ?? null) ? $resultadoPedidos['registros'] : [];
+        $paginacionPedidosVista = is_array($resultadoPedidos['paginacion'] ?? null) ? $resultadoPedidos['paginacion'] : null;
     } elseif (puedeGestionarPedidos()) {
-        $pedidos = consultarPedidos($pdo, $filtrosPedidos);
+        $resultadoPedidos = consultarPedidos($pdo, $filtrosPedidos, null, $paginacionPedidos);
+        $pedidos = is_array($resultadoPedidos['registros'] ?? null) ? $resultadoPedidos['registros'] : [];
+        $paginacionPedidosVista = is_array($resultadoPedidos['paginacion'] ?? null) ? $resultadoPedidos['paginacion'] : null;
     }
 } catch (Throwable $e) {
     $mensajeError = trim($e->getMessage());
@@ -144,6 +150,8 @@ renderAppLayoutStart(
                     <input type="hidden" name="codigo_pedido" value="<?= htmlspecialchars($filtrosPedidos['codigo_pedido'], ENT_QUOTES, 'UTF-8') ?>">
                     <input type="hidden" name="estado" value="<?= htmlspecialchars($filtrosPedidos['estado'], ENT_QUOTES, 'UTF-8') ?>">
                     <input type="hidden" name="usuario_creacion" value="<?= htmlspecialchars($filtrosPedidos['usuario_creacion'], ENT_QUOTES, 'UTF-8') ?>">
+                    <input type="hidden" name="page" value="<?= htmlspecialchars((string) ($paginacionPedidosVista['page'] ?? $paginacionPedidos['page']), ENT_QUOTES, 'UTF-8') ?>">
+                    <input type="hidden" name="per_page" value="<?= htmlspecialchars((string) ($paginacionPedidosVista['per_page'] ?? $paginacionPedidos['per_page']), ENT_QUOTES, 'UTF-8') ?>">
                     <div class="col-12 d-flex flex-wrap gap-2">
                         <button class="btn btn-primary mt-0" type="submit">Filtrar inventario</button>
                         <a class="btn btn-outline-secondary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/pedidos.php">Limpiar</a>
@@ -181,14 +189,18 @@ renderAppLayoutStart(
                     <?php if ($inventarioDisponible === []): ?>
                         <div class="alert alert-light border mb-0">No hay mercancia activa con los filtros indicados.</div>
                     <?php else: ?>
-                        <div class="table-responsive custom-table-wrap pedidos-disponibles-table-wrap">
+                        <div class="table-responsive custom-table-wrap pedidos-disponibles-table-wrap scroll-horizontal-visible">
                             <table class="table table-hover align-middle mb-0 data-table pedidos-disponibles-table">
                                 <thead>
                                     <tr>
                                         <th scope="col" style="width: 56px;">Sel.</th>
                                         <?php foreach ($columnasInventario as $columna => $titulo): ?>
                                             <?php
-                                            $parametrosOrden = array_merge($filtrosInventario, $filtrosPedidos, ['ordenar' => $columna]);
+                                            $parametrosOrden = array_merge($filtrosInventario, $filtrosPedidos, [
+                                                'ordenar' => $columna,
+                                                'page' => (int) ($paginacionPedidosVista['page'] ?? $paginacionPedidos['page']),
+                                                'per_page' => (int) ($paginacionPedidosVista['per_page'] ?? $paginacionPedidos['per_page']),
+                                            ]);
                                             $parametrosOrden['direccion'] = $columna === $ordenarInventario && $direccionInventario === 'ASC' ? 'DESC' : 'ASC';
                                             $urlOrden = BASE_URL . '/pedidos.php?' . http_build_query($parametrosOrden);
                                             ?>
@@ -278,6 +290,7 @@ renderAppLayoutStart(
                         </div>
                     <?php endif; ?>
                     <div class="col-12 col-md-auto d-flex gap-2">
+                        <input type="hidden" name="per_page" value="<?= htmlspecialchars((string) ($paginacionPedidosVista['per_page'] ?? $paginacionPedidos['per_page']), ENT_QUOTES, 'UTF-8') ?>">
                         <button class="btn btn-primary mt-0" type="submit">Filtrar pedidos</button>
                         <a class="btn btn-outline-secondary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/pedidos.php">Limpiar</a>
                     </div>
@@ -287,7 +300,7 @@ renderAppLayoutStart(
             <?php if ($pedidos === []): ?>
                 <div class="alert alert-light border mb-0">No hay pedidos que coincidan con los filtros actuales.</div>
             <?php else: ?>
-                <div class="table-responsive custom-table-wrap">
+                <div class="table-responsive custom-table-wrap scroll-horizontal-visible">
                     <table class="table table-hover align-middle mb-0 data-table">
                         <thead>
                             <tr>
@@ -325,6 +338,19 @@ renderAppLayoutStart(
                         </tbody>
                     </table>
                 </div>
+                <?php renderPaginacionListado(
+                    BASE_URL . '/pedidos.php',
+                    $paginacionPedidosVista ?? construirPaginacion(count($pedidos), 1, $paginacionPedidos['per_page']),
+                    array_merge(
+                        $filtrosInventario,
+                        $filtrosPedidos,
+                        [
+                            'ordenar' => $ordenarInventario,
+                            'direccion' => $direccionInventario,
+                            'per_page' => (int) ($paginacionPedidosVista['per_page'] ?? $paginacionPedidos['per_page']),
+                        ]
+                    )
+                ); ?>
             <?php endif; ?>
         </div>
     </div>

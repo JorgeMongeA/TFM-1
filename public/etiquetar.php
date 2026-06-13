@@ -104,7 +104,7 @@ renderAppLayoutStart(
                 </div>
             </div>
 
-            <div class="table-responsive custom-table-wrap">
+            <div class="table-responsive custom-table-wrap scroll-horizontal-visible">
                 <table class="table table-hover align-middle mb-0 data-table">
                     <thead>
                         <tr>

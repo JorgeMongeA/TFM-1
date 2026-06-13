@@ -12,6 +12,7 @@ require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/inventario.php';
 require_once __DIR__ . '/salidas.php';
 require_once __DIR__ . '/actividad.php';
+require_once __DIR__ . '/paginacion.php';
 
 const PEDIDO_ESTADO_PENDIENTE = 'pendiente';
 const PEDIDO_ESTADO_EN_PREPARACION = 'en_preparacion';
@@ -288,42 +289,75 @@ function columnasStockProcesadoSelect(PDO $pdo): string
     return '0 AS stock_procesado, NULL AS fecha_stock_procesado';
 }
 
-function consultarPedidos(PDO $pdo, array $filtros = [], ?int $usuarioId = null): array
+function consultarPedidos(PDO $pdo, array $filtros = [], ?int $usuarioId = null, ?array $paginacion = null): array
 {
     $columnasStock = columnasStockProcesadoSelect($pdo);
-    $sql = 'SELECT id, codigo_pedido, usuario_creacion_id, usuario_creacion, estado, observaciones, total_lineas, total_bultos,
-                   usuario_gestion_id, usuario_gestion, fecha_creacion, fecha_ultima_gestion,
-                   ' . $columnasStock . '
-            FROM pedidos
-            WHERE 1 = 1';
+    $sqlBase = ' FROM pedidos
+                 WHERE 1 = 1';
     $params = [];
 
     if ($usuarioId !== null && $usuarioId > 0) {
-        $sql .= ' AND usuario_creacion_id = :usuario_creacion_id';
+        $sqlBase .= ' AND usuario_creacion_id = :usuario_creacion_id';
         $params[':usuario_creacion_id'] = $usuarioId;
     }
 
     $codigoPedido = trim((string) ($filtros['codigo_pedido'] ?? ''));
     if ($codigoPedido !== '') {
-        $sql .= ' AND codigo_pedido LIKE :codigo_pedido';
+        $sqlBase .= ' AND codigo_pedido LIKE :codigo_pedido';
         $params[':codigo_pedido'] = '%' . $codigoPedido . '%';
     }
 
     $estado = trim((string) ($filtros['estado'] ?? ''));
     if ($estado !== '' && array_key_exists($estado, estadosPedidoDisponibles())) {
-        $sql .= ' AND estado = :estado';
+        $sqlBase .= ' AND estado = :estado';
         $params[':estado'] = $estado;
     }
 
     $usuarioCreacion = trim((string) ($filtros['usuario_creacion'] ?? ''));
     if ($usuarioCreacion !== '') {
-        $sql .= ' AND usuario_creacion LIKE :usuario_creacion';
+        $sqlBase .= ' AND usuario_creacion LIKE :usuario_creacion';
         $params[':usuario_creacion'] = '%' . $usuarioCreacion . '%';
     }
 
-    $sql .= ' ORDER BY fecha_creacion DESC, id DESC';
+    $sqlOrden = ' ORDER BY fecha_creacion DESC, id DESC';
 
-    $stmt = $pdo->prepare($sql);
+    if ($paginacion !== null) {
+        $stmtTotal = $pdo->prepare('SELECT COUNT(*)' . $sqlBase);
+        $stmtTotal->execute($params);
+        $paginacionNormalizada = construirPaginacion(
+            (int) $stmtTotal->fetchColumn(),
+            (int) ($paginacion['page'] ?? 1),
+            (int) ($paginacion['per_page'] ?? PAGINACION_POR_PAGINA_POR_DEFECTO)
+        );
+
+        $stmt = $pdo->prepare(
+            'SELECT id, codigo_pedido, usuario_creacion_id, usuario_creacion, estado, observaciones, total_lineas, total_bultos,
+                    usuario_gestion_id, usuario_gestion, fecha_creacion, fecha_ultima_gestion,
+                    ' . $columnasStock
+            . $sqlBase
+            . $sqlOrden
+            . ' LIMIT :limite OFFSET :offset'
+        );
+        foreach ($params as $param => $valor) {
+            $stmt->bindValue($param, $valor);
+        }
+        $stmt->bindValue(':limite', (int) $paginacionNormalizada['per_page'], PDO::PARAM_INT);
+        $stmt->bindValue(':offset', (int) $paginacionNormalizada['offset'], PDO::PARAM_INT);
+        $stmt->execute();
+
+        return [
+            'registros' => $stmt->fetchAll(),
+            'paginacion' => $paginacionNormalizada,
+        ];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT id, codigo_pedido, usuario_creacion_id, usuario_creacion, estado, observaciones, total_lineas, total_bultos,
+                usuario_gestion_id, usuario_gestion, fecha_creacion, fecha_ultima_gestion,
+                ' . $columnasStock
+        . $sqlBase
+        . $sqlOrden
+    );
     $stmt->execute($params);
 
     return $stmt->fetchAll();

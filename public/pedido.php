@@ -299,7 +299,7 @@ renderAppLayoutStart(
                                     <textarea class="form-control" id="observaciones" name="observaciones" rows="3"><?= htmlspecialchars((string) ($pedido['observaciones'] ?? ''), ENT_QUOTES, 'UTF-8') ?></textarea>
                                 </div>
 
-                                <div class="table-responsive custom-table-wrap mb-3">
+                                <div class="table-responsive custom-table-wrap scroll-horizontal-visible mb-3">
                                     <table class="table table-hover align-middle mb-0 data-table">
                                         <thead>
                                             <tr>
@@ -355,7 +355,7 @@ renderAppLayoutStart(
                                 <?php if ($inventarioDisponibleEdicion === []): ?>
                                     <div class="alert alert-light border">No hay lineas activas disponibles con los filtros actuales.</div>
                                 <?php else: ?>
-                                    <div class="table-responsive custom-table-wrap mb-4">
+                                    <div class="table-responsive custom-table-wrap scroll-horizontal-visible mb-4">
                                         <table class="table table-hover align-middle mb-0 data-table">
                                             <thead>
                                                 <tr>
@@ -475,7 +475,7 @@ renderAppLayoutStart(
                 <?php if ($lineasPedido === []): ?>
                     <div class="alert alert-light border mb-0">Este pedido no contiene lineas.</div>
                 <?php else: ?>
-                    <div class="table-responsive custom-table-wrap">
+                    <div class="table-responsive custom-table-wrap scroll-horizontal-visible">
                         <table class="table table-hover align-middle mb-0 data-table">
                             <thead>
                                 <tr>

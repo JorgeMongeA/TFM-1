@@ -19,13 +19,17 @@ requierePermiso(PERMISO_HISTORICO);
 $filtros = leerFiltrosInventarioDesdeRequest($_GET, filtrosHistoricoPermitidos());
 [$ordenar, $direccion] = leerOrdenInventarioDesdeRequest($_GET, columnasHistoricoOrdenables(), 'fecha_confirmacion_salida');
 $direccion = isset($_GET['direccion']) ? $direccion : 'DESC';
+$paginacion = leerPaginacionDesdeRequest($_GET);
 $registros = [];
+$paginacionVista = null;
 $errorCarga = '';
 $columnasTabla = columnasHistoricoTabla();
 
 try {
     $pdo = conectar();
-    $registros = consultarHistorico($pdo, $filtros, $ordenar, $direccion);
+    $resultadoConsulta = consultarHistorico($pdo, $filtros, $ordenar, $direccion, $paginacion);
+    $registros = is_array($resultadoConsulta['registros'] ?? null) ? $resultadoConsulta['registros'] : [];
+    $paginacionVista = is_array($resultadoConsulta['paginacion'] ?? null) ? $resultadoConsulta['paginacion'] : null;
 } catch (Throwable $e) {
     $mensajeError = trim($e->getMessage());
     $errorCarga = $mensajeError !== '' ? $mensajeError : 'No se pudo cargar el historico.';
@@ -67,6 +71,9 @@ renderAppLayoutStart(
                     <input class="form-control" id="usuario_confirmacion" name="usuario_confirmacion" type="text" value="<?= htmlspecialchars($filtros['usuario_confirmacion'], ENT_QUOTES, 'UTF-8') ?>">
                 </div>
                 <div class="col-12 d-flex flex-wrap gap-2">
+                    <input type="hidden" name="ordenar" value="<?= htmlspecialchars($ordenar, ENT_QUOTES, 'UTF-8') ?>">
+                    <input type="hidden" name="direccion" value="<?= htmlspecialchars($direccion, ENT_QUOTES, 'UTF-8') ?>">
+                    <input type="hidden" name="per_page" value="<?= htmlspecialchars((string) ($paginacionVista['per_page'] ?? $paginacion['per_page']), ENT_QUOTES, 'UTF-8') ?>">
                     <button class="btn btn-primary mt-0" type="submit">Filtrar</button>
                     <a class="btn btn-outline-secondary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/historico.php">Limpiar filtros</a>
                 </div>
@@ -79,13 +86,13 @@ renderAppLayoutStart(
     <?php elseif ($registros === []): ?>
         <div class="alert alert-light border mb-0">No se han encontrado registros historicos con los filtros indicados.</div>
     <?php else: ?>
-        <div class="table-responsive custom-table-wrap">
+        <div class="table-responsive custom-table-wrap scroll-horizontal-visible">
             <table class="table table-hover align-middle mb-0 data-table">
                 <thead>
                     <tr>
                         <?php foreach ($columnasTabla as $columna => $titulo): ?>
                             <?php
-                            $parametrosOrden = array_merge($filtros, ['ordenar' => $columna]);
+                            $parametrosOrden = array_merge($filtros, ['ordenar' => $columna, 'per_page' => (int) ($paginacionVista['per_page'] ?? $paginacion['per_page']), 'page' => 1]);
                             $parametrosOrden['direccion'] = $columna === $ordenar && $direccion === 'ASC' ? 'DESC' : 'ASC';
                             $urlOrden = BASE_URL . '/historico.php?' . http_build_query($parametrosOrden);
                             ?>
@@ -113,6 +120,11 @@ renderAppLayoutStart(
                 </tbody>
             </table>
         </div>
+        <?php renderPaginacionListado(
+            BASE_URL . '/historico.php',
+            $paginacionVista ?? construirPaginacion(count($registros), 1, $paginacion['per_page']),
+            array_merge($filtros, ['ordenar' => $ordenar, 'direccion' => $direccion, 'per_page' => (int) ($paginacionVista['per_page'] ?? $paginacion['per_page'])])
+        ); ?>
     <?php endif; ?>
 </section>
 <?php renderAppLayoutEnd(); ?>

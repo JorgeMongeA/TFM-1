@@ -63,7 +63,9 @@ function filaInventarioUbicacionCompleta(array $fila): bool
 
 $filtros = leerFiltrosInventarioDesdeRequest($_GET);
 [$ordenar, $direccion] = leerOrdenInventarioDesdeRequest($_GET, columnasInventarioConsultaOrdenables());
+$paginacion = leerPaginacionDesdeRequest($_GET);
 $registros = [];
+$paginacionVista = null;
 $errorCarga = '';
 $resultadoSincronizacion = null;
 $resultadoReflejoSheets = null;
@@ -173,7 +175,11 @@ try {
         }
     }
 
-    $registros = consultarInventario($pdo, $filtros, $ordenar, $direccion);
+    $registros = consultarInventario($pdo, $filtros, $ordenar, $direccion, $paginacion);
+    if (is_array($registros['registros'] ?? null)) {
+        $paginacionVista = is_array($registros['paginacion'] ?? null) ? $registros['paginacion'] : null;
+        $registros = $registros['registros'];
+    }
 
     if (usuarioEsAlmacen()) {
         foreach ($filtros as $valorFiltro) {
@@ -183,10 +189,7 @@ try {
             }
         }
 
-        $totalBultosMostrados = array_sum(array_map(
-            static fn(array $fila): int => (int) ($fila['bultos'] ?? 0),
-            $registros
-        ));
+        $totalBultosMostrados = obtenerTotalBultosInventario($pdo, $filtros);
     }
 } catch (Throwable $e) {
     error_log('[GOOGLE_SYNC] inventario_consulta.php | ' . $e->getMessage());
@@ -227,6 +230,9 @@ renderAppLayoutStart(
                         <input class="form-control" id="destino" name="destino" type="text" autocomplete="off" value="<?= htmlspecialchars($filtros['destino'], ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="col-12 d-flex flex-wrap gap-2">
+                        <input type="hidden" name="ordenar" value="<?= htmlspecialchars($ordenar, ENT_QUOTES, 'UTF-8') ?>">
+                        <input type="hidden" name="direccion" value="<?= htmlspecialchars($direccion, ENT_QUOTES, 'UTF-8') ?>">
+                        <input type="hidden" name="per_page" value="<?= htmlspecialchars((string) ($paginacionVista['per_page'] ?? $paginacion['per_page']), ENT_QUOTES, 'UTF-8') ?>">
                         <button class="btn btn-primary mt-0" type="submit">Filtrar</button>
                         <a class="btn btn-outline-secondary" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/inventario_consulta.php">Limpiar filtros</a>
                         <a class="btn btn-outline-dark" href="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/inventario_pdf.php?<?= htmlspecialchars(http_build_query(array_merge($filtros, ['ordenar' => $ordenar, 'direccion' => $direccion])), ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener">Imprimir stock PDF</a>
@@ -339,7 +345,7 @@ renderAppLayoutStart(
                         <tr>
                             <?php foreach ($columnasTabla as $columna => $titulo): ?>
                                 <?php
-                                $parametrosOrden = array_merge($filtros, ['ordenar' => $columna]);
+                                $parametrosOrden = array_merge($filtros, ['ordenar' => $columna, 'per_page' => (int) ($paginacionVista['per_page'] ?? $paginacion['per_page']), 'page' => 1]);
                                 $parametrosOrden['direccion'] = $columna === $ordenar && $direccion === 'ASC' ? 'DESC' : 'ASC';
                                 $urlOrden = BASE_URL . '/inventario_consulta.php?' . http_build_query($parametrosOrden);
                                 ?>
@@ -441,6 +447,11 @@ renderAppLayoutStart(
                 </table>
             </div>
         </div>
+        <?php renderPaginacionListado(
+            BASE_URL . '/inventario_consulta.php',
+            $paginacionVista ?? construirPaginacion(count($registros), 1, $paginacion['per_page']),
+            array_merge($filtros, ['ordenar' => $ordenar, 'direccion' => $direccion, 'per_page' => (int) ($paginacionVista['per_page'] ?? $paginacion['per_page'])])
+        ); ?>
     <?php endif; ?>
 </section>
 

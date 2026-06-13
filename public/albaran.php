@@ -159,7 +159,7 @@ renderAppLayoutStart(
                     </div>
                 </div>
 
-                <div class="table-responsive custom-table-wrap">
+                <div class="table-responsive custom-table-wrap scroll-horizontal-visible">
                     <table class="table table-hover align-middle mb-0 data-table">
                         <thead>
                             <tr>
@@ -227,7 +227,7 @@ renderAppLayoutStart(
                     </div>
                 </div>
 
-                <div class="table-responsive custom-table-wrap">
+                <div class="table-responsive custom-table-wrap scroll-horizontal-visible">
                     <table class="table table-hover align-middle mb-0 data-table">
                         <thead>
                             <tr>
@@ -304,7 +304,7 @@ renderAppLayoutStart(
             <?php if ($pedidosDisponiblesAlbaran === []): ?>
                 <div class="alert alert-light border mb-0">No hay pedidos preparados/completados disponibles para albaran.</div>
             <?php else: ?>
-                <div class="table-responsive custom-table-wrap">
+                <div class="table-responsive custom-table-wrap scroll-horizontal-visible">
                     <table class="table table-hover align-middle mb-0 data-table">
                         <thead>
                             <tr>

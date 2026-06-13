@@ -212,6 +212,15 @@ if ($guardado) {
     }
 }
 
+$sugerenciaUbicacion = null;
+if (!$guardado && $pdo instanceof PDO && trim($datos['codigo_centro']) !== '') {
+    try {
+        $sugerenciaUbicacion = obtenerUbicacionSugeridaEntrada($pdo, $datos['codigo_centro'], $datos['colegio']);
+    } catch (Throwable $e) {
+        $sugerenciaUbicacion = null;
+    }
+}
+
 renderAppLayoutStart(
     'Inventario - Entrada',
     'entrada',
@@ -236,7 +245,7 @@ renderAppLayoutStart(
                 <?php endif; ?>
             </div>
             <?php if ($urlEtiquetasGuardadas !== ''): ?>
-                <a class="btn btn-outline-primary" href="<?= htmlspecialchars($urlEtiquetasGuardadas, ENT_QUOTES, 'UTF-8') ?>">
+                <a class="btn btn-outline-primary" href="<?= htmlspecialchars($urlEtiquetasGuardadas, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener">
                     <?= $totalLineasGuardadas > 1 ? 'Generar etiquetas PDF' : 'Generar etiqueta PDF' ?>
                 </a>
             <?php endif; ?>
@@ -267,6 +276,23 @@ renderAppLayoutStart(
         <div class="col-12 col-md-6">
             <label class="form-label" for="codigo_centro">Codigo centro *</label>
             <input class="form-control bg-light" id="codigo_centro" name="codigo_centro" type="text" required readonly autocomplete="off" value="<?= htmlspecialchars($datos['codigo_centro'], ENT_QUOTES, 'UTF-8') ?>">
+        </div>
+        <div class="col-12<?= trim($datos['codigo_centro']) === '' ? ' d-none' : '' ?>" id="sugerencia-ubicacion-wrapper">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <p class="eyebrow mb-1">Ubicacion sugerida</p>
+                    <div class="fw-semibold" id="sugerencia-ubicacion-valor">
+                        <?= htmlspecialchars((string) ($sugerenciaUbicacion['ubicacion'] ?? 'No hay ubicaciones sugeridas disponibles'), ENT_QUOTES, 'UTF-8') ?>
+                    </div>
+                    <p class="mb-0 text-body-secondary" id="sugerencia-ubicacion-texto">
+                        <?php if (is_array($sugerenciaUbicacion)): ?>
+                            Basada en ubicaciones activas no completas del mismo centro.
+                        <?php else: ?>
+                            No hay ubicaciones sugeridas disponibles
+                        <?php endif; ?>
+                    </p>
+                </div>
+            </div>
         </div>
         <div class="col-12 col-md-6 col-xl-3">
             <label class="form-label" for="fecha_entrada">Fecha entrada *</label>
@@ -360,9 +386,20 @@ const centroSelectorInput = document.getElementById('centro_selector');
 const centroNombreInput = document.getElementById('colegio');
 const centroCodigoInput = document.getElementById('codigo_centro');
 const centroDestinoInput = document.getElementById('destino');
+const sugerenciaUbicacionWrapper = document.getElementById('sugerencia-ubicacion-wrapper');
+const sugerenciaUbicacionValor = document.getElementById('sugerencia-ubicacion-valor');
+const sugerenciaUbicacionTexto = document.getElementById('sugerencia-ubicacion-texto');
 const agregarUbicacionButton = document.getElementById('agregar-ubicacion');
 const ubicacionRows = Array.from(document.querySelectorAll('.ubicacion-row'));
 const totalBultosInput = document.getElementById('bultos');
+const sugerenciaUbicacionEndpoint = <?= json_encode(BASE_URL . '/entrada_ubicacion_sugerida.php', JSON_UNESCAPED_SLASHES) ?>;
+const sugerenciaUbicacionInicial = <?= json_encode([
+    'has_suggestion' => is_array($sugerenciaUbicacion),
+    'ubicacion' => (string) ($sugerenciaUbicacion['ubicacion'] ?? ''),
+    'message' => is_array($sugerenciaUbicacion)
+        ? 'Basada en ubicaciones activas no completas del mismo centro.'
+        : 'No hay ubicaciones sugeridas disponibles',
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 
 function normalizarDestinoEntrada(destino) {
     return ['EDV', 'EPL'].includes(destino) ? destino : '';
@@ -388,6 +425,7 @@ function limpiarCentroSeleccionado() {
     }
 
     aplicarDestinoCentro('');
+    limpiarSugerenciaUbicacion();
 }
 
 function aplicarCentroSeleccionado(centro) {
@@ -399,6 +437,65 @@ function aplicarCentroSeleccionado(centro) {
     centroNombreInput.value = centro.nombre_centro || '';
     centroCodigoInput.value = centro.codigo_centro || '';
     aplicarDestinoCentro(centro.destino || '');
+    cargarSugerenciaUbicacion();
+}
+
+function mostrarSugerenciaUbicacion(valor, texto) {
+    if (!sugerenciaUbicacionWrapper || !sugerenciaUbicacionValor || !sugerenciaUbicacionTexto) {
+        return;
+    }
+
+    sugerenciaUbicacionWrapper.classList.remove('d-none');
+    sugerenciaUbicacionValor.textContent = valor;
+    sugerenciaUbicacionTexto.textContent = texto;
+}
+
+function limpiarSugerenciaUbicacion() {
+    if (!sugerenciaUbicacionWrapper || !sugerenciaUbicacionValor || !sugerenciaUbicacionTexto) {
+        return;
+    }
+
+    sugerenciaUbicacionWrapper.classList.add('d-none');
+    sugerenciaUbicacionValor.textContent = '';
+    sugerenciaUbicacionTexto.textContent = '';
+}
+
+async function cargarSugerenciaUbicacion() {
+    const codigoCentro = centroCodigoInput?.value.trim() || '';
+    const colegio = centroNombreInput?.value.trim() || '';
+
+    if (codigoCentro === '') {
+        limpiarSugerenciaUbicacion();
+        return;
+    }
+
+    try {
+        const url = new URL(sugerenciaUbicacionEndpoint, window.location.origin);
+        url.searchParams.set('codigo_centro', codigoCentro);
+        if (colegio !== '') {
+            url.searchParams.set('colegio', colegio);
+        }
+
+        const response = await fetch(url.toString(), {
+            headers: {
+                'Accept': 'application/json',
+            },
+        });
+
+        if (!response.ok) {
+            throw new Error('No se pudo obtener la sugerencia.');
+        }
+
+        const payload = await response.json();
+        if (payload?.has_suggestion && payload?.ubicacion) {
+            mostrarSugerenciaUbicacion(payload.ubicacion, 'Basada en ubicaciones activas no completas del mismo centro.');
+            return;
+        }
+
+        mostrarSugerenciaUbicacion('No hay ubicaciones sugeridas disponibles', 'No hay ubicaciones sugeridas disponibles');
+    } catch (error) {
+        mostrarSugerenciaUbicacion('No hay ubicaciones sugeridas disponibles', 'No hay ubicaciones sugeridas disponibles');
+    }
 }
 
 function renderCentroAutocomplete(centro) {
@@ -438,6 +535,11 @@ const centroAutocomplete = window.AppAutocomplete?.init({
 
 if (centroInicial.codigo_centro) {
     aplicarDestinoCentro(centroInicial.destino || '');
+    if (sugerenciaUbicacionInicial.has_suggestion && sugerenciaUbicacionInicial.ubicacion) {
+        mostrarSugerenciaUbicacion(sugerenciaUbicacionInicial.ubicacion, sugerenciaUbicacionInicial.message || 'Basada en ubicaciones activas no completas del mismo centro.');
+    } else {
+        mostrarSugerenciaUbicacion('No hay ubicaciones sugeridas disponibles', sugerenciaUbicacionInicial.message || 'No hay ubicaciones sugeridas disponibles');
+    }
 }
 
 if (centroDestinoInput) {
